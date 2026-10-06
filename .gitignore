@@ -1,0 +1,10 @@
+# Visual Studio and MSBuild output
+.vs/
+**/x64/
+*.obj
+*.pdb
+*.ilk
+
+# Local probe results; they describe this computer and are generated on demand
+demo/*-result.txt
+demo/diagnostic-result.json

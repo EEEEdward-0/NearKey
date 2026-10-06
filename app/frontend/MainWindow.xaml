@@ -1,0 +1,167 @@
+<Window x:Class="BluetoothUnlock.UI.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="蓝牙靠近解锁" Width="1120" Height="780" MinWidth="920" MinHeight="650"
+        WindowStartupLocation="CenterScreen" Background="#0E1420" Foreground="#EDF3FA"
+        FontFamily="Microsoft YaHei UI" FontSize="13">
+    <Window.Resources>
+        <SolidColorBrush x:Key="CardBrush" Color="#172233"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#48C7B2"/>
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource CardBrush}"/>
+            <Setter Property="CornerRadius" Value="18"/>
+            <Setter Property="Padding" Value="20"/>
+        </Style>
+        <Style x:Key="PrimaryButton" TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="Foreground" Value="#10242A"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="16,10"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="9" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="SecondaryButton" TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
+            <Setter Property="Background" Value="#29384D"/>
+            <Setter Property="Foreground" Value="#EDF3FA"/>
+        </Style>
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="#DDE8F4"/>
+            <Setter Property="Margin" Value="0,7"/>
+        </Style>
+        <Style TargetType="ListBox">
+            <Setter Property="Background" Value="#101B2B"/>
+            <Setter Property="Foreground" Value="#EDF3FA"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+        <Style TargetType="ListBoxItem">
+            <Setter Property="Padding" Value="10"/>
+            <Setter Property="Margin" Value="0,2"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="28">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <Grid Grid.Row="0" Margin="0,0,0,20">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="蓝牙靠近解锁" FontSize="28" FontWeight="Bold"/>
+                <TextBlock Text="靠近时解锁，离开后按你的设置锁定电脑" Foreground="#95A9BF" Margin="0,5,0,0"/>
+            </StackPanel>
+            <Border Grid.Column="1" Background="#193C40" CornerRadius="16" Padding="16,8" VerticalAlignment="Center">
+                <TextBlock x:Name="StatusText" Text="正在读取状态" Foreground="#8AE6D5" FontWeight="SemiBold"/>
+            </Border>
+        </Grid>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="1.12*"/><ColumnDefinition Width="0.88*"/></Grid.ColumnDefinitions>
+            <Grid Grid.Column="0" Margin="0,0,12,0">
+                <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <Border Style="{StaticResource Card}" Grid.Row="0">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="设备" FontSize="19" FontWeight="SemiBold"/>
+                        <TextBlock Grid.Row="1" Text="附近扫描结果 · 选中后加入信任设备" Foreground="#9BAEC3" Margin="0,5,0,12"/>
+                        <ListBox x:Name="NearbyList" Grid.Row="2" MinHeight="145">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
+                                            <TextBlock Text="{Binding Address}" Foreground="#91A7BE" FontSize="11"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" Text="{Binding SignalText}" Foreground="#8AE6D5" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <Button Grid.Row="3" Content="加入选中设备" Style="{StaticResource PrimaryButton}"
+                                HorizontalAlignment="Left" Margin="0,12,0,14" Click="OnAddDevice"/>
+                        <TextBlock Grid.Row="4" Text="已选择的设备" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                        <Grid Grid.Row="5">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <ListBox x:Name="SelectedList" Height="95">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Name}"/>
+                                            <TextBlock Text="{Binding Address}" Foreground="#91A7BE" FontSize="11"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                            <Button Grid.Column="1" Content="移除" Style="{StaticResource SecondaryButton}"
+                                    VerticalAlignment="Bottom" Margin="10,0,0,0" Click="OnRemoveDevice"/>
+                        </Grid>
+                    </Grid>
+                </Border>
+                <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0,12,0,0">
+                    <StackPanel>
+                        <TextBlock Text="识别提示" FontWeight="SemiBold" FontSize="15"/>
+                        <TextBlock Text="Apple Watch 可能使用变化的蓝牙地址。请先单独移动手表确认是哪条广播；未确认前不要把匿名 Apple 广播当成手表。"
+                                   TextWrapping="Wrap" Foreground="#A9BCD0" Margin="0,7,0,0"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <ScrollViewer Grid.Column="1" Margin="12,0,0,0" VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="当前信号" FontSize="18" FontWeight="SemiBold"/>
+                            <TextBlock x:Name="MeanText" Text="-- dBm" FontSize="38" FontWeight="Bold" Foreground="#8AE6D5" Margin="0,8,0,0"/>
+                            <TextBlock x:Name="DeviceCountText" Text="尚无设备数据" Foreground="#9BAEC3"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource Card}" Margin="0,12,0,0">
+                        <StackPanel>
+                            <TextBlock Text="自动规则" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                            <CheckBox x:Name="AutoUnlockCheck" Content="靠近后自动解锁"/>
+                            <TextBlock Text="解锁阈值" Foreground="#A9BCD0" Margin="0,10,0,0"/>
+                            <Slider x:Name="UnlockSlider" Minimum="-100" Maximum="-20" TickFrequency="1" IsSnapToTickEnabled="True"/>
+                            <TextBlock x:Name="UnlockValue" Foreground="#8AE6D5"/>
+                            <CheckBox x:Name="AutoLockCheck" Content="离开后自动锁定" Margin="0,15,0,0"/>
+                            <TextBlock Text="锁定阈值" Foreground="#A9BCD0" Margin="0,10,0,0"/>
+                            <Slider x:Name="LockSlider" Minimum="-100" Maximum="-20" TickFrequency="1" IsSnapToTickEnabled="True"/>
+                            <TextBlock x:Name="LockValue" Foreground="#8AE6D5"/>
+                            <TextBlock Text="持续离开多久后锁定" Foreground="#A9BCD0" Margin="0,12,0,0"/>
+                            <ComboBox x:Name="DelayBox" Background="#E5EDF5" Foreground="#172233" Height="30" Margin="0,6,0,0">
+                                <ComboBoxItem Content="30 秒" Tag="30"/>
+                                <ComboBoxItem Content="60 秒" Tag="60"/>
+                                <ComboBoxItem Content="120 秒" Tag="120"/>
+                                <ComboBoxItem Content="300 秒" Tag="300"/>
+                            </ComboBox>
+                            <CheckBox x:Name="StartupCheck" Content="登录 Windows 后自动启动后台" Margin="0,16,0,0"/>
+                            <Button Content="保存设置" Style="{StaticResource PrimaryButton}"
+                                    Margin="0,16,0,0" Click="OnSaveSettings"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource Card}" Margin="0,12,0,0">
+                        <StackPanel>
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="最近记录" FontSize="17" FontWeight="SemiBold"/>
+                                <Button Grid.Column="1" Content="立即锁定" Style="{StaticResource SecondaryButton}" Click="OnManualLock"/>
+                            </Grid>
+                            <ListBox x:Name="EventList" Height="115" Margin="0,10,0,0" FontSize="11"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+        <TextBlock x:Name="HintText" Grid.Row="2" Text="设置仅保存在本机；关闭此窗口后后台继续运行。"
+                   Foreground="#91A7BE" Margin="0,18,0,0"/>
+    </Grid>
+</Window>

@@ -216,8 +216,17 @@ HRESULT CSampleCredential::UnAdvise()
 // selected, you would do it here.
 HRESULT CSampleCredential::SetSelected(_Out_ BOOL *pbAutoLogon)
 {
-    *pbAutoLogon = FALSE;
+    *pbAutoLogon = IsNearbyForAutoLogon() ? TRUE : FALSE;
+    RecordLoginFlow(L"LastAutoSelected", *pbAutoLogon);
     return S_OK;
+}
+
+bool CSampleCredential::IsNearbyForAutoLogon() const
+{
+    const bool existingSession = IsExistingSessionForUser(_pszUserSid);
+    RecordLoginFlow(L"LastExistingSession", existingSession ? 1 : 0);
+    return (_cpus == CPUS_UNLOCK_WORKSTATION || _cpus == CPUS_LOGON) &&
+        existingSession && IsIPhoneNearby(_pszUserSid);
 }
 
 // Similarly to SetSelected, LogonUI calls this when your tile was selected
@@ -520,6 +529,8 @@ HRESULT CSampleCredential::GetSerialization(_Out_ CREDENTIAL_PROVIDER_GET_SERIAL
                                             _Outptr_result_maybenull_ PWSTR *ppwszOptionalStatusText,
                                             _Out_ CREDENTIAL_PROVIDER_STATUS_ICON *pcpsiOptionalStatusIcon)
 {
+    RecordLoginFlow(L"LastSerializationTick", GetTickCount());
+    RecordLoginFlow(L"LastSerializationResponse", CPGSR_NO_CREDENTIAL_NOT_FINISHED);
     HRESULT hr = E_UNEXPECTED;
     *pcpgsr = CPGSR_NO_CREDENTIAL_NOT_FINISHED;
     *ppwszOptionalStatusText = nullptr;
@@ -644,6 +655,8 @@ HRESULT CSampleCredential::GetSerialization(_Out_ CREDENTIAL_PROVIDER_GET_SERIAL
     CoTaskMemFree(_rgFieldStrings[SFI_PASSWORD]);
     _rgFieldStrings[SFI_PASSWORD] = nullptr;
     SHStrDupW(L"", &_rgFieldStrings[SFI_PASSWORD]);
+    RecordLoginFlow(L"LastSerializationResponse", *pcpgsr);
+    RecordLoginFlow(L"LastSerializationHr", static_cast<DWORD>(hr));
     return hr;
 }
 
@@ -670,6 +683,8 @@ HRESULT CSampleCredential::ReportResult(NTSTATUS ntsStatus,
                                         _Outptr_result_maybenull_ PWSTR *ppwszOptionalStatusText,
                                         _Out_ CREDENTIAL_PROVIDER_STATUS_ICON *pcpsiOptionalStatusIcon)
 {
+    RecordLoginFlow(L"LastAuthStatus", static_cast<DWORD>(ntsStatus));
+    RecordLoginFlow(L"LastAuthSubstatus", static_cast<DWORD>(ntsSubstatus));
     *ppwszOptionalStatusText = nullptr;
     *pcpsiOptionalStatusIcon = CPSI_NONE;
 

@@ -113,6 +113,12 @@ using DllGetClassObjectFunction = HRESULT (STDAPICALLTYPE *)(REFCLSID, REFIID, v
 
 int wmain(int argc, wchar_t **argv)
 {
+    if (argc == 3 && wcscmp(argv[1], L"--session-check") == 0)
+    {
+        const bool existing = IsExistingSessionForUser(argv[2]);
+        std::printf("Existing console session: %s\n", existing ? "yes" : "no");
+        return existing ? 0 : 12;
+    }
     if (argc == 2 && wcscmp(argv[1], L"--verify-password") == 0)
         return VerifyStoredPassword();
     if (argc == 2 && wcscmp(argv[1], L"--compare-password") == 0)

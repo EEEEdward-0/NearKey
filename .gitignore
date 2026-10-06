@@ -1,6 +1,8 @@
 # Visual Studio and MSBuild output
 .vs/
 **/x64/
+**/bin/
+**/obj/
 *.obj
 *.pdb
 *.ilk

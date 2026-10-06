@@ -15,6 +15,8 @@
 #include "CSampleProvider.h"
 #include "CSampleCredential.h"
 #include "guid.h"
+#include "proximity.h"
+#include <thread>
 
 CSampleProvider::CSampleProvider():
     _cRef(1),
@@ -26,6 +28,7 @@ CSampleProvider::CSampleProvider():
 
 CSampleProvider::~CSampleProvider()
 {
+    UnAdvise();
     if (_pCredential != nullptr)
     {
         _pCredential->Release();
@@ -101,16 +104,65 @@ HRESULT CSampleProvider::SetSerialization(
 // Called by LogonUI to give you a callback.  Providers often use the callback if they
 // some event would cause them to need to change the set of tiles that they enumerated.
 HRESULT CSampleProvider::Advise(
-    _In_ ICredentialProviderEvents * /*pcpe*/,
-    _In_ UINT_PTR /*upAdviseContext*/)
+    _In_ ICredentialProviderEvents *pcpe,
+    _In_ UINT_PTR upAdviseContext)
 {
-    return E_NOTIMPL;
+    UnAdvise();
+    if ((_cpus != CPUS_UNLOCK_WORKSTATION && _cpus != CPUS_LOGON) || pcpe == nullptr) return S_OK;
+    IStream *stream = nullptr;
+    HRESULT hr = CoMarshalInterThreadInterfaceInStream(IID_ICredentialProviderEvents, pcpe, &stream);
+    if (FAILED(hr)) return hr;
+    auto stop = std::make_shared<std::atomic<bool>>(false);
+    _stopProximityWatch = stop;
+    std::thread([stream, stop, upAdviseContext]()
+    {
+        if (FAILED(CoInitializeEx(nullptr, COINIT_MULTITHREADED)))
+        {
+            stream->Release();
+            return;
+        }
+        ICredentialProviderEvents *events = nullptr;
+        if (SUCCEEDED(CoGetInterfaceAndReleaseStream(stream, IID_PPV_ARGS(&events))))
+        {
+            wchar_t sid[256] = {};
+            DWORD bytes = sizeof(sid);
+            const bool hasSid = RegGetValueW(HKEY_LOCAL_MACHINE,
+                L"SOFTWARE\\BluetoothUnlockDemo", L"UserSid", RRF_RT_REG_SZ,
+                nullptr, sid, &bytes) == ERROR_SUCCESS;
+            bool wasNearby = hasSid && IsExistingSessionForUser(sid) && IsIPhoneNearby(sid);
+            bool notified = false;
+            static std::atomic<ULONGLONG> lastRefresh{0};
+            while (!stop->load())
+            {
+                Sleep(1500);
+                if (stop->load()) break;
+                const bool isNearby = hasSid && IsExistingSessionForUser(sid) && IsIPhoneNearby(sid);
+                if (isNearby && (!wasNearby || !notified))
+                {
+                    const ULONGLONG now = GetTickCount64();
+                    ULONGLONG prior = lastRefresh.load();
+                    if (now - prior > 30000 && lastRefresh.compare_exchange_strong(prior, now))
+                    {
+                        RecordLoginFlow(L"LastAutoRefreshTick", GetTickCount());
+                        events->CredentialsChanged(upAdviseContext);
+                        notified = true;
+                    }
+                }
+                wasNearby = isNearby;
+            }
+            events->Release();
+        }
+        CoUninitialize();
+    }).detach();
+    return S_OK;
 }
 
 // Called by LogonUI when the ICredentialProviderEvents callback is no longer valid.
 HRESULT CSampleProvider::UnAdvise()
 {
-    return E_NOTIMPL;
+    if (_stopProximityWatch) _stopProximityWatch->store(true);
+    _stopProximityWatch.reset();
+    return S_OK;
 }
 
 // Called by LogonUI to determine the number of fields in your tiles.  This
@@ -170,6 +222,13 @@ HRESULT CSampleProvider::GetCredentialCount(
     }
 
     *pdwCount = _pCredential != nullptr ? 1 : 0;
+    if (*pdwCount == 1 && _pCredential->IsNearbyForAutoLogon())
+    {
+        *pdwDefault = 0;
+        *pbAutoLogonWithDefault = TRUE;
+    }
+    RecordLoginFlow(L"LastAutoDefault", *pbAutoLogonWithDefault);
+    RecordLoginFlow(L"LastAutoScenario", _cpus);
 
     return S_OK;
 }

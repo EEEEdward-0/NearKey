@@ -1,5 +1,7 @@
 # 蓝牙解锁最小 demo
 
+> 此目录保留早期单设备实验流程。当前应用的构建、安装与实测状态请看 `../app/README.md`；下面的点击 Login 步骤记录的是早期 demo，不代表当前安装版的操作方式。
+
 此 demo 用已配对 iPhone 的 BLE 信号作为接近条件。电脑锁屏后，选择 **Bluetooth Unlock Demo**，点击 **Login**；如果最近 45 秒内收到高于阈值的信号，就向 Windows 提交本机配置的 Microsoft 账户密码。Windows 原有 PIN／密码登录方式保持可用。
 
 ## 当前组成

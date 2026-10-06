@@ -4,6 +4,8 @@
 #include <strsafe.h>
 #include <vector>
 #include <sddl.h>
+#include <wtsapi32.h>
+#include <ntsecapi.h>
 #include "../shared/proximity_pipe.h"
 
 namespace
@@ -44,6 +46,50 @@ namespace
         value.resize(bytes / sizeof(wchar_t));
         return RegGetValueW(root, path, name, RRF_RT_REG_SZ, nullptr, value.data(), &bytes) == ERROR_SUCCESS;
     }
+}
+
+void RecordLoginFlow(PCWSTR valueName, DWORD value)
+{
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\BluetoothUnlockDemo", 0,
+                      KEY_SET_VALUE, &key) == ERROR_SUCCESS)
+    {
+        RegSetValueExW(key, valueName, 0, REG_DWORD,
+                       reinterpret_cast<const BYTE*>(&value), sizeof(value));
+        RegCloseKey(key);
+    }
+}
+
+bool IsExistingSessionForUser(PCWSTR userSid)
+{
+    if (userSid == nullptr) return false;
+    PSID expectedSid = nullptr;
+    if (!ConvertStringSidToSidW(userSid, &expectedSid)) return false;
+    bool matches = false;
+    ULONG count = 0;
+    PLUID sessions = nullptr;
+    const DWORD consoleSession = WTSGetActiveConsoleSessionId();
+    if (LsaEnumerateLogonSessions(&count, &sessions) >= 0)
+    {
+        for (ULONG i = 0; i < count && !matches; ++i)
+        {
+            PSECURITY_LOGON_SESSION_DATA data = nullptr;
+            if (LsaGetLogonSessionData(&sessions[i], &data) >= 0 && data != nullptr)
+            {
+                const bool interactive = data->LogonType == Interactive ||
+                    data->LogonType == RemoteInteractive ||
+                    data->LogonType == CachedInteractive;
+                matches = data->Sid != nullptr && data->Session == consoleSession &&
+                    interactive && EqualSid(data->Sid, expectedSid);
+                LsaFreeReturnBuffer(data);
+            }
+        }
+        LsaFreeReturnBuffer(sessions);
+    }
+    RecordLoginFlow(L"LastSessionScanCount", count);
+    RecordLoginFlow(L"LastConsoleSession", consoleSession);
+    LocalFree(expectedSid);
+    return matches;
 }
 
 bool IsIPhoneNearby(PCWSTR userSid)

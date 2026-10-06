@@ -1,9 +1,11 @@
+param([switch]$SessionCheck)
 $ErrorActionPreference = 'Stop'
 $name = 'BluetoothUnlockDemo-SystemProbe-' + [guid]::NewGuid().ToString('N')
 $exe = Join-Path $PSScriptRoot 'smoke\x64\Release\ProviderSmoke.exe'
 $dll = Join-Path $env:ProgramFiles 'BluetoothUnlockDemo\BluetoothCredentialProvider.dll'
 $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-$action = New-ScheduledTaskAction -Execute $exe -Argument ('"' + $dll + '" ' + $sid)
+$arguments = if ($SessionCheck) { '--session-check ' + $sid } else { '"' + $dll + '" ' + $sid }
+$action = New-ScheduledTaskAction -Execute $exe -Argument $arguments
 $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
 try {
     Register-ScheduledTask -TaskName $name -Action $action -Principal $principal -Force | Out-Null

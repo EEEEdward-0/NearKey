@@ -11,6 +11,8 @@
 #include <windows.h>
 #include <strsafe.h>
 #include <new>
+#include <atomic>
+#include <memory>
 
 #include "CSampleCredential.h"
 
@@ -81,5 +83,6 @@ private:
     bool                                    _fRecreateEnumeratedCredentials;
     CREDENTIAL_PROVIDER_USAGE_SCENARIO      _cpus;
     ICredentialProviderUserArray            *_pCredProviderUserArray;
+    std::shared_ptr<std::atomic<bool>>       _stopProximityWatch;
 
 };

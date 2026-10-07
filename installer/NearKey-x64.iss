@@ -31,6 +31,7 @@ Name: "{group}\NearKey - 近钥"; Filename: "{app}\ui\{#MyAppExeName}"
 Name: "{autodesktop}\NearKey - 近钥"; Filename: "{app}\ui\{#MyAppExeName}"
 
 [Run]
+Filename: "{app}\setup\BluetoothSetup.exe"; Description: "先配置 Windows 账户密码"; StatusMsg: "正在打开密码配置..."; Flags: postinstall waituntilterminated
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install-app.ps1"""; StatusMsg: "正在安装 NearKey 后台服务..."; Flags: runhidden waituntilterminated
 Filename: "{app}\ui\{#MyAppExeName}"; Description: "启动 NearKey 设置"; Flags: postinstall nowait skipifsilent
 

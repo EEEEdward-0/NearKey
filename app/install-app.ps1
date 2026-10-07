@@ -121,8 +121,9 @@ foreach ($folder in @($dataRoot, $dataDirectory, $runtimeDirectory)) {
 $sharedSettings = Join-Path $dataDirectory 'settings.ini'
 $legacySettings = Join-Path $env:LOCALAPPDATA 'BluetoothUnlock\settings.ini'
 if (-not (Test-Path -LiteralPath $sharedSettings)) {
-    if (-not (Test-Path -LiteralPath $legacySettings)) { throw '请先在设置界面保存设备与解锁规则，再安装开机服务。' }
-    Copy-Item -LiteralPath $legacySettings -Destination $sharedSettings
+    if (Test-Path -LiteralPath $legacySettings) {
+        Copy-Item -LiteralPath $legacySettings -Destination $sharedSettings
+    }
 }
 New-ItemProperty -LiteralPath $serviceKey -Name DataDirectory -Value $dataDirectory -PropertyType String -Force | Out-Null
 New-ItemProperty -LiteralPath $serviceKey -Name RuntimeDirectory -Value $runtimeDirectory -PropertyType String -Force | Out-Null

@@ -12,6 +12,15 @@ NearKey 不会替换 Windows 或 Linux 原来的 PIN、密码登录。第一次�
 - “试运行”可以先看看设置是否合适，不会真的锁屏或登录。
 - 关闭设置窗口后，后台仍会继续运行。
 
+## 下载
+
+普通用户直接到 GitHub 的 [Releases](https://github.com/EEEEdward-0/NearKey/releases) 页面下载压缩包：
+
+- `NearKey-windows-x64.zip`：普通 Intel/AMD 电脑
+- `NearKey-windows-arm64.zip`：Windows ARM64 电脑
+- `NearKey-linux-x64-arm64.zip`：Ubuntu x64 和 ARM64 文件
+
+源码页面里的 `Code` 下载只包含源代码，不能直接安装。
 ## Windows
 
 支持 Windows 11 x64 和 ARM64。
@@ -114,4 +123,5 @@ Linux x64 / ARM64：
 - Linux x64 / ARM64：已完成交叉编译，需要 Ubuntu 实机测试各桌面环境。
 
 遇到问题时，先关闭自动解锁，使用原有 PIN 或密码登录，再查看设置界面的运行记录。
+
 

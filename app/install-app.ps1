@@ -16,9 +16,10 @@ function Copy-AppFile([string]$sourcePath, [string]$destinationPath) {
     }
 }
 $root = Split-Path $PSScriptRoot -Parent
+$packaged = Test-Path (Join-Path $PSScriptRoot 'backend')
 $platform = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString() -eq 'Arm64') { 'ARM64' } else { 'x64' }
-$backend = Join-Path $PSScriptRoot "backend\$platform\Release\BluetoothBackend.exe"
-$uiDirectory = Join-Path $PSScriptRoot $(if ($platform -eq 'ARM64') { 'frontend\bin\publish-arm64' } else { 'frontend\bin\publish' })
+$backend = if ($packaged) { Join-Path $PSScriptRoot 'backend\BluetoothBackend.exe' } else { Join-Path $PSScriptRoot "backend\$platform\Release\BluetoothBackend.exe" }
+$uiDirectory = if ($packaged) { Join-Path $PSScriptRoot 'ui' } else { Join-Path $PSScriptRoot $(if ($platform -eq 'ARM64') { 'frontend\bin\publish-arm64' } else { 'frontend\bin\publish' }) }
 $destination = Join-Path $env:ProgramFiles 'BluetoothUnlockDemo'
 if (-not (Test-Path -LiteralPath $backend) -or
     -not (Test-Path -LiteralPath (Join-Path $uiDirectory 'BluetoothUnlock.UI.exe'))) {
@@ -53,7 +54,22 @@ if (Get-ScheduledTask -TaskName BluetoothUnlockSession -ErrorAction SilentlyCont
     Disable-ScheduledTask -TaskName BluetoothUnlockSession | Out-Null
     Stop-ScheduledTask -TaskName BluetoothUnlockSession -ErrorAction SilentlyContinue
 }
-& (Join-Path $root 'demo\install-demo.ps1')
+if ($packaged) {
+    $guid = '{c6830b85-4394-479b-9998-e919461b6081}'
+    $source = Join-Path $PSScriptRoot 'credential-provider\SampleV2CredentialProvider.dll'
+    $providerDestination = Join-Path $destination 'BluetoothCredentialProvider.dll'
+    if (-not (Test-Path -LiteralPath $source)) { throw '找不到已打包的 Windows 登录组件。' }
+    Copy-AppFile $source $providerDestination
+    $classKey = "HKLM:\SOFTWARE\Classes\CLSID\$guid\InprocServer32"
+    $providerKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\$guid"
+    New-Item -Path $classKey -Force | Out-Null
+    Set-Item -LiteralPath $classKey -Value $providerDestination
+    New-ItemProperty -LiteralPath $classKey -Name ThreadingModel -Value 'Apartment' -PropertyType String -Force | Out-Null
+    New-Item -Path $providerKey -Force | Out-Null
+    Set-Item -LiteralPath $providerKey -Value '近钥 NearKey'
+} else {
+    & (Join-Path $root 'demo\install-demo.ps1')
+}
 New-Item -ItemType Directory -Path $destination -Force | Out-Null
 $installedBackend = Join-Path $destination 'BluetoothBackend.exe'
 Get-CimInstance Win32_Process -Filter "Name = 'BluetoothBackend.exe'" |

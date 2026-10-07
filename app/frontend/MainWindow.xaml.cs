@@ -129,8 +129,22 @@ public partial class MainWindow : Window
             LanStateText.Text = status.GetValueOrDefault("mode", "0") == "0"
                 ? "局域网：当前模式未启用"
                 : status.GetValueOrDefault("lan_present", "0") == "1"
-                    ? $"局域网：在线 {status.GetValueOrDefault("lan_online", "0")} / {status.GetValueOrDefault("lan_selected", "0")} 台，全部通过"
-                    : $"局域网：在线 {status.GetValueOrDefault("lan_online", "0")} / {status.GetValueOrDefault("lan_selected", "0")} 台，尚未全部通过";
+                    ? $"局域网：在线 {status.GetValueOrDefault("lan_online", "0")} / 已配置 {status.GetValueOrDefault("lan_selected", "0")} 台，全部通过"
+                    : $"局域网：在线 {status.GetValueOrDefault("lan_online", "0")} / 已配置 {status.GetValueOrDefault("lan_selected", "0")} 台，尚未全部通过";
+            var lanDetails = new List<string>();
+            var savedLan = _backend.ReadSettings().LanDevices;
+            for (var i = 0; i < savedLan.Count; i++)
+            {
+                var prefix = $"lan_device{i}";
+                if (!status.GetValueOrDefault($"{prefix}_mac", "").Equals(savedLan[i].Mac, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                var currentIp = status.GetValueOrDefault($"{prefix}_ip", savedLan[i].Ip);
+                var seen = long.TryParse(status.GetValueOrDefault($"{prefix}_last_seen", "0"), out var seconds) && seconds > 0
+                    ? DateTimeOffset.FromUnixTimeSeconds(seconds).ToLocalTime().ToString("MM-dd HH:mm:ss") : "尚未检测到";
+                lanDetails.Add($"设备 {i + 1}：保存 IP {savedLan[i].Ip}；当前 IP {currentIp}；" +
+                    $"{(status.GetValueOrDefault($"{prefix}_online", "0") == "1" ? "在线" : "离线")}；最近在线 {seen}");
+            }
+            LanStateText.ToolTip = string.Join("\n", lanDetails);
             EventList.ItemsSource = _backend.ReadEvents().Select(TranslateEvent).ToArray();
         }
         catch (Exception error) { HintText.Text = $"读取状态失败：{error.Message}"; }
@@ -211,7 +225,7 @@ public partial class MainWindow : Window
         if (((mode != 0 || ip.Length > 0 || mac.Length > 0) && !Complete(ip, mac)) ||
             ((ip2.Length > 0 || mac2.Length > 0) && (!Complete(ip2, mac2) || !Complete(ip, mac))))
         {
-            HintText.Text = "每台设备需填写完整的 IPv4 和 Wi-Fi MAC；第二台可留空。";
+            HintText.Text = "未保存：每台局域网设备需完整填写 IP 和 Wi-Fi MAC。第二台请补全两项，或全部清空；添加蓝牙设备不会自动加入局域网配置。";
             return;
         }
         if (ip2.Length > 0 && mac == mac2)

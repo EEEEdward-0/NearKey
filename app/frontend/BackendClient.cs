@@ -88,6 +88,9 @@ internal sealed class BackendClient
 
     public BackendSettings ReadSettings()
     {
+        var version = ReadInt("Meta", "Version", 0);
+        if (version < 0 || version > 2)
+            throw new InvalidOperationException("配置版本高于当前程序支持范围或无效，请更新程序。配置未修改。");
         var unlockKey = ReadInt("Behavior", "UnlockKey", 13);
         if (unlockKey != 13 && (unlockKey < 'A' || unlockKey > 'Z')) unlockKey = 13;
         var devices = new List<DeviceRow>();

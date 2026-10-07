@@ -12,6 +12,7 @@ struct SelectedDevice
 
 struct Settings
 {
+    int configurationVersion = 2;
     std::vector<SelectedDevice> devices;
     int unlockThreshold = -65;
     int lockThreshold = -80;

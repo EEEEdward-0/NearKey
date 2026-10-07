@@ -45,6 +45,7 @@ Settings LoadSettings()
 {
     Settings settings;
     const std::wstring path = SettingsPath();
+    settings.configurationVersion = GetPrivateProfileIntW(L"Meta", L"Version", 0, path.c_str());
     settings.unlockThreshold = GetPrivateProfileIntW(L"Signal", L"UnlockThreshold", -65, path.c_str());
     settings.lockThreshold = GetPrivateProfileIntW(L"Signal", L"LockThreshold", -80, path.c_str());
     settings.lockDelaySeconds = GetPrivateProfileIntW(L"Signal", L"LockDelaySeconds", 60, path.c_str());
@@ -90,11 +91,16 @@ Settings LoadSettings()
         GetPrivateProfileStringW(L"Devices", key, L"Device", name, 128, path.c_str());
         settings.devices.push_back({address, name});
     }
+    // Older schemas use the same fields or the single-device LAN migration above.
+    // A newer schema must not accidentally enable unlock with misinterpreted defaults.
+    if (settings.configurationVersion < 0 || settings.configurationVersion > 2)
+        settings.automaticUnlock = false;
     return settings;
 }
 
 bool SaveSettings(const Settings& settings)
 {
+    if (settings.configurationVersion < 0 || settings.configurationVersion > 2) return false;
     if (settings.devices.size() > 8 || settings.unlockThreshold < -100 ||
         settings.unlockThreshold > -20 || settings.lockThreshold < -100 ||
         settings.lockThreshold > settings.unlockThreshold ||
@@ -108,51 +114,51 @@ bool SaveSettings(const Settings& settings)
     if (settings.lanDevices.size() == 2 &&
         (settings.lanDevices[0].mac == settings.lanDevices[1].mac ||
          settings.lanDevices[0].ipv4 == settings.lanDevices[1].ipv4)) return false;
-    const std::wstring path = SettingsPath();
-    wchar_t number[32];
-    auto writeNumber = [&](const wchar_t* section, const wchar_t* key, int value)
+    std::wstring text = L"[Meta]\r\nVersion=2\r\n[Signal]\r\n";
+    auto number = [&](const wchar_t* key, int value)
+    { text += std::wstring(key) + L"=" + std::to_wstring(value) + L"\r\n"; };
+    number(L"UnlockThreshold", settings.unlockThreshold);
+    number(L"LockThreshold", settings.lockThreshold);
+    number(L"LockDelaySeconds", settings.lockDelaySeconds);
+    text += L"[Behavior]\r\n";
+    number(L"AutomaticLock", settings.automaticLock);
+    number(L"AutomaticUnlock", settings.automaticUnlock);
+    number(L"UnlockKey", settings.unlockKey);
+    number(L"UnlockMode", settings.unlockMode);
+    text += L"[LAN]\r\n";
+    number(L"Count", static_cast<int>(settings.lanDevices.size()));
+    for (size_t i = 0; i < settings.lanDevices.size(); ++i)
     {
-        swprintf_s(number, L"%d", value);
-        return WritePrivateProfileStringW(section, key, number, path.c_str()) != FALSE;
-    };
-    if (!writeNumber(L"Signal", L"UnlockThreshold", settings.unlockThreshold) ||
-        !writeNumber(L"Signal", L"LockThreshold", settings.lockThreshold) ||
-        !writeNumber(L"Signal", L"LockDelaySeconds", settings.lockDelaySeconds) ||
-        !writeNumber(L"Behavior", L"AutomaticLock", settings.automaticLock) ||
-        !writeNumber(L"Behavior", L"AutomaticUnlock", settings.automaticUnlock) ||
-        !writeNumber(L"Behavior", L"UnlockKey", settings.unlockKey) ||
-        !writeNumber(L"Behavior", L"UnlockMode", settings.unlockMode) ||
-        !writeNumber(L"Devices", L"Count", static_cast<int>(settings.devices.size())))
-        return false;
-    if (!writeNumber(L"LAN", L"Count", static_cast<int>(settings.lanDevices.size()))) return false;
-    for (size_t i = 0; i < 2; ++i)
-    {
-        wchar_t ipKey[32], macKey[32];
-        swprintf_s(ipKey, L"IPv4%zu", i); swprintf_s(macKey, L"Mac%zu", i);
-        const bool exists = i < settings.lanDevices.size();
-        if (!WritePrivateProfileStringW(L"LAN", ipKey, exists ? settings.lanDevices[i].ipv4.c_str() : nullptr, path.c_str()) ||
-            !WritePrivateProfileStringW(L"LAN", macKey, exists ? FormatBluetoothAddress(settings.lanDevices[i].mac).c_str() : nullptr, path.c_str())) return false;
+        text += L"IPv4" + std::to_wstring(i) + L"=" + settings.lanDevices[i].ipv4 + L"\r\n";
+        text += L"Mac" + std::to_wstring(i) + L"=" + FormatBluetoothAddress(settings.lanDevices[i].mac) + L"\r\n";
     }
-    WritePrivateProfileStringW(L"LAN", L"IPv4", nullptr, path.c_str());
-    WritePrivateProfileStringW(L"LAN", L"Mac", nullptr, path.c_str());
+    text += L"[Devices]\r\n";
+    number(L"Count", static_cast<int>(settings.devices.size()));
     for (size_t i = 0; i < settings.devices.size(); ++i)
     {
-        wchar_t key[32];
-        swprintf_s(key, L"Address%zu", i);
-        if (!WritePrivateProfileStringW(L"Devices", key,
-            FormatBluetoothAddress(settings.devices[i].address).c_str(), path.c_str())) return false;
-        swprintf_s(key, L"Name%zu", i);
-        if (!WritePrivateProfileStringW(L"Devices", key,
-            settings.devices[i].name.c_str(), path.c_str())) return false;
+        // INI values cannot contain line breaks or be interpreted as surrounding quotes.
+        auto name = settings.devices[i].name;
+        for (auto& c : name) if (c == L'\r' || c == L'\n' || c == L'"') c = L' ';
+        text += L"Address" + std::to_wstring(i) + L"=" + FormatBluetoothAddress(settings.devices[i].address) + L"\r\n";
+        text += L"Name" + std::to_wstring(i) + L"=" + name + L"\r\n";
     }
-    for (size_t i = settings.devices.size(); i < 8; ++i)
+    const std::wstring path = SettingsPath();
+    wchar_t temporary[MAX_PATH] = {};
+    if (!GetTempFileNameW(DataDirectory().c_str(), L"cfg", 0, temporary)) return false;
+    HANDLE file = CreateFileW(temporary, GENERIC_WRITE, 0, nullptr, TRUNCATE_EXISTING,
+        FILE_ATTRIBUTE_NORMAL, nullptr);
+    bool saved = false;
+    if (file != INVALID_HANDLE_VALUE)
     {
-        wchar_t key[32];
-        swprintf_s(key, L"Address%zu", i);
-        WritePrivateProfileStringW(L"Devices", key, nullptr, path.c_str());
-        swprintf_s(key, L"Name%zu", i);
-        WritePrivateProfileStringW(L"Devices", key, nullptr, path.c_str());
+        // UTF-16 BOM preserves Chinese names for the Windows INI reader.
+        const std::wstring contents = L"\xFEFF" + text;
+        const DWORD bytes = static_cast<DWORD>(contents.size() * sizeof(wchar_t));
+        DWORD written = 0;
+        saved = WriteFile(file, contents.data(), bytes, &written, nullptr) && written == bytes && FlushFileBuffers(file);
+        CloseHandle(file);
+        // Same-directory replacement exposes a complete old or complete new file.
+        if (saved) saved = MoveFileExW(temporary, path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
     }
-    WritePrivateProfileStringW(nullptr, nullptr, nullptr, path.c_str());
-    return true;
+    if (!saved) DeleteFileW(temporary);
+    return saved;
 }

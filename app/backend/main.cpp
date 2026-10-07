@@ -218,6 +218,8 @@ namespace
         std::vector<Settings::LanDevice> recoveryConfig;
         std::future<std::vector<Settings::LanDevice>> lanRecovery;
         ULONGLONG lastLanRecovery = 0;
+        std::vector<bool> lanDeviceOnline;
+        std::vector<ULONGLONG> lanLastSeen;
         while (running)
         {
             const ULONGLONG now = GetTickCount64();
@@ -255,6 +257,8 @@ namespace
             if (settings.lanDevices != probedLanDevices)
             {
                 runtimeLanDevices = settings.lanDevices;
+                lanDeviceOnline.assign(settings.lanDevices.size(), false);
+                lanLastSeen.assign(settings.lanDevices.size(), 0);
                 lastLanRecovery = 0;
             }
             if (lanRecovery.valid() && lanRecovery.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
@@ -272,14 +276,22 @@ namespace
             {
                 lanPresent = false;
                 lanOnline = 0;
+                lanDeviceOnline.assign(settings.lanDevices.size(), false);
                 lastLanProbe = 0;
             }
             else if (!lastLanProbe || now - lastLanProbe >= 10000 ||
                 settings.lanDevices != probedLanDevices)
             {
                 lanOnline = 0;
-                for (const auto& device : runtimeLanDevices)
-                    if (ProbeLanDevice(device.ipv4, device.mac)) ++lanOnline;
+                FILETIME utc{};
+                GetSystemTimeAsFileTime(&utc);
+                const ULONGLONG epochSeconds = ((static_cast<ULONGLONG>(utc.dwHighDateTime) << 32) |
+                    utc.dwLowDateTime) / 10000000ULL - 11644473600ULL;
+                for (size_t i = 0; i < runtimeLanDevices.size(); ++i)
+                {
+                    lanDeviceOnline[i] = ProbeLanDevice(runtimeLanDevices[i].ipv4, runtimeLanDevices[i].mac);
+                    if (lanDeviceOnline[i]) { ++lanOnline; lanLastSeen[i] = epochSeconds; }
+                }
                 lanPresent = AllLanDevicesOnline(static_cast<int>(settings.lanDevices.size()), lanOnline);
                 lastLanProbe = now;
                 probedLanDevices = settings.lanDevices;
@@ -346,7 +358,16 @@ namespace
                     static_cast<unsigned long long>(decision.newestTick),
                     settings.unlockMode, decision.unlock ? 1 : 0, lanPresent ? 1 : 0,
                     settings.unlockThreshold, settings.lockThreshold, lanOnline, settings.lanDevices.size());
-                WriteText(DataDirectory() + L"\\status.txt", status);
+                std::string snapshot = status;
+                for (size_t i = 0; i < runtimeLanDevices.size(); ++i)
+                {
+                    const auto prefix = "lan_device" + std::to_string(i);
+                    snapshot += prefix + "_mac=" + Utf8(FormatBluetoothAddress(runtimeLanDevices[i].mac)) + "\n";
+                    snapshot += prefix + "_ip=" + Utf8(runtimeLanDevices[i].ipv4) + "\n";
+                    snapshot += prefix + "_online=" + (lanDeviceOnline[i] ? "1\n" : "0\n");
+                    snapshot += prefix + "_last_seen=" + std::to_string(lanLastSeen[i]) + "\n";
+                }
+                WriteText(DataDirectory() + L"\\status.txt", snapshot);
                 std::string list;
                 std::sort(discovered.begin(), discovered.end(), [](const auto& left, const auto& right)
                 { return left.second.tick > right.second.tick; });

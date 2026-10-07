@@ -4,7 +4,7 @@
 #define MyAppExeName "BluetoothUnlock.UI.exe"
 
 [Setup]
-AppId={{B7C4F1A8-6CE1-4D3F-9E32-NEARKEY1000}
+AppId={{B7C4F1A8-6CE1-4D3F-9E32-100000000001}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
@@ -36,3 +36,4 @@ Filename: "{app}\ui\{#MyAppExeName}"; Description: "启动 NearKey 设置"; Flag
 
 [UninstallRun]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\uninstall-app.ps1"""; RunOnceId: "NearKeyUninstall"
+

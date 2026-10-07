@@ -339,12 +339,6 @@ namespace
 
     int RunCommand(int argc, wchar_t** argv)
     {
-        if (argc == 2 && wcscmp(argv[1], L"--list-lan") == 0)
-        {
-            for (const auto& device : ScanLanDevices())
-                printf("%s\t%s\n", Utf8(device.ipv4).c_str(), Utf8(FormatBluetoothAddress(device.mac)).c_str());
-            return 0;
-        }
         if (argc == 3 && wcscmp(argv[1], L"--scan-lan") == 0)
         {
             uint64_t mac = 0;

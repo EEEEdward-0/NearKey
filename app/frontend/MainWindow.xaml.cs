@@ -229,51 +229,6 @@ public partial class MainWindow : Window
         catch (Exception error) { ShowError(error); }
     }
 
-    private sealed record LanScanRow(string Ip, string Mac, string Label)
-    {
-        public string Display => $"{Ip}    {Mac}    {Label}";
-    }
-
-    private async void OnScanLan(object sender, RoutedEventArgs e)
-    {
-        ScanLanButton.IsEnabled = false;
-        LanScanPanel.Visibility = Visibility.Visible;
-        LanScanList.ItemsSource = null;
-        LanScanHint.Text = "正在扫描同网段，请保持手机 Wi-Fi 开启并亮屏；约需 20 秒，系统请求结束可能稍晚。";
-        try
-        {
-            var output = await _backend.RunCommandAsync("--list-lan");
-            string Normalize(string value) => value.Replace(":", "").Replace("-", "").Trim();
-            var rows = output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
-                .Select(line => line.Trim().Split('\t'))
-                .Where(parts => parts.Length == 2)
-                .Select(parts => new LanScanRow(parts[0], parts[1],
-                    parts[1].Equals(Normalize(LanMacBox.Text), StringComparison.OrdinalIgnoreCase)
-                        ? "当前设备 1" :
-                    parts[1].Equals(Normalize(LanMacBox2.Text), StringComparison.OrdinalIgnoreCase)
-                        ? "当前设备 2" : "身份待确认"))
-                .OrderBy(row => row.Ip, StringComparer.Ordinal).ToArray();
-            LanScanList.ItemsSource = rows;
-            LanScanHint.Text = rows.Length == 0 ? "未发现有响应的设备，请唤醒手机后重试，或手动填写。" :
-                $"发现 {rows.Length} 个有响应的地址。请选择自己的手机，再填入设备 1 或 2；IP/MAC 无法直接确定手机名称。";
-        }
-        catch (Exception error) { LanScanHint.Text = $"扫描失败：{error.Message}"; }
-        finally { ScanLanButton.IsEnabled = true; }
-    }
-
-    private void OnUseLanScan(object sender, RoutedEventArgs e)
-    {
-        if (LanScanList.SelectedItem is not LanScanRow row)
-        {
-            HintText.Text = "请先选择一条局域网扫描结果。";
-            return;
-        }
-        var second = (sender as System.Windows.Controls.Button)?.Tag?.ToString() == "2";
-        (second ? LanIpBox2 : LanIpBox).Text = row.Ip;
-        (second ? LanMacBox2 : LanMacBox).Text = row.Mac;
-        HintText.Text = $"已填入设备 {(second ? 2 : 1)}，请确认是自己的手机后保存设置。";
-    }
-
     private async void OnResolveLan(object sender, RoutedEventArgs e)
     {
         var second = ReferenceEquals(sender, ResolveLanButton2);

@@ -27,7 +27,7 @@ namespace
         return result != 0;
     }
 
-    std::vector<LanScanDevice> ScanLan(uint64_t expectedMac)
+    bool ScanForLanMac(uint64_t expectedMac, std::wstring& ipv4)
     {
         ULONG bytes = 16384;
         std::vector<BYTE> buffer(bytes);
@@ -41,7 +41,7 @@ namespace
             error = GetAdaptersAddresses(AF_INET, GAA_FLAG_SKIP_ANYCAST |
                 GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER, nullptr, adapters, &bytes);
         }
-        if (error != NO_ERROR) return {};
+        if (error != NO_ERROR) return false;
         std::vector<ULONG> targets;
         std::set<std::pair<ULONG, unsigned>> subnets;
         for (auto adapter = adapters; adapter; adapter = adapter->Next)
@@ -65,7 +65,6 @@ namespace
                     if (address != host) targets.push_back(address);
             }
         }
-        std::vector<LanScanDevice> results;
         std::atomic<size_t> next{0};
         std::atomic<bool> found{false};
         std::mutex resultMutex;
@@ -85,19 +84,19 @@ namespace
                     if (!InetNtopW(AF_INET, &address, text, ARRAYSIZE(text))) continue;
                     uint64_t actualMac = 0;
                     // Let Windows pick the route when Wi-Fi and Ethernet share a subnet.
-                    if (ReadLanMac(text, actualMac) && (!expectedMac || actualMac == expectedMac))
+                    if (ReadLanMac(text, actualMac) && actualMac == expectedMac)
                     {
                         std::lock_guard<std::mutex> lock(resultMutex);
                         if (!found.load())
                         {
-                            results.push_back({text, actualMac});
-                            if (expectedMac) found = true;
+                            ipv4 = text;
+                            found = true;
                         }
                     }
                 }
             });
         for (auto& worker : workers) worker.join();
-        return results;
+        return found.load();
     }
 }
 
@@ -110,11 +109,7 @@ bool IsValidLanIpv4(const std::wstring& ipv4)
 
 bool DiscoverLanDevice(uint64_t mac, std::wstring& ipv4)
 {
-    if (!mac) return false;
-    const auto results = ScanLan(mac);
-    if (results.empty()) return false;
-    ipv4 = results[0].ipv4;
-    return true;
+    return mac != 0 && ScanForLanMac(mac, ipv4);
 }
 
 bool ProbeLanDevice(const std::wstring& ipv4, uint64_t expectedMac)
@@ -133,7 +128,7 @@ bool ResolveLanDevice(std::wstring& ipv4, uint64_t& mac)
     }
     if (mac == 0) return false;
     PMIB_IPNET_TABLE2 table = nullptr;
-    if (GetIpNetTable2(AF_INET, &table) != NO_ERROR) return DiscoverLanDevice(mac, ipv4);
+    if (GetIpNetTable2(AF_INET, &table) != NO_ERROR) return ScanForLanMac(mac, ipv4);
     bool found = false;
     for (ULONG index = 0; index < table->NumEntries && !found; ++index)
     {
@@ -153,10 +148,5 @@ bool ResolveLanDevice(std::wstring& ipv4, uint64_t& mac)
         }
     }
     FreeMibTable(table);
-    return found || DiscoverLanDevice(mac, ipv4);
-}
-
-std::vector<LanScanDevice> ScanLanDevices()
-{
-    return ScanLan(0);
+    return found || ScanForLanMac(mac, ipv4);
 }

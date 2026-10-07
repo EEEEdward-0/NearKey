@@ -129,6 +129,7 @@
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
                     <StackPanel>
+                        <TextBlock Text="已选设备平均信号" Foreground="#748095" FontSize="11" />
                         <TextBlock x:Name="MeanText" Text="-- dBm" FontSize="22" FontWeight="SemiBold" Foreground="#2374CF" />
                         <TextBlock x:Name="DeviceCountText" Text="等待设备" Foreground="#748095" FontSize="11" />
                     </StackPanel>
@@ -232,7 +233,7 @@
                         <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                             <StackPanel>
                                 <TextBlock Text="距离与自动锁定" Style="{StaticResource Heading}" />
-                                <TextBlock Text="解锁信号阈值" />
+                                <TextBlock Text="平均信号解锁阈值" />
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
@@ -241,9 +242,9 @@
                                     <Slider x:Name="UnlockSlider" Minimum="-100" Maximum="-20" TickFrequency="1" IsSnapToTickEnabled="True" Margin="0,8,16,0" />
                                     <TextBlock x:Name="UnlockValue" Grid.Column="1" VerticalAlignment="Center" Foreground="#2374CF" />
                                 </Grid>
-                                <TextBlock Text="数值越接近 0，要求手机越近。先参考顶部的当前信号，再调整阈值。" Style="{StaticResource Help}" />
+                                <TextBlock Text="对最近 20 秒收到广播的已选设备取平均，平均值达到此阈值才满足蓝牙解锁条件。未检测到的设备不参与计算；数值越接近 0，要求越近。调整后需保存设置。" Style="{StaticResource Help}" />
                                 <CheckBox x:Name="AutoLockCheck" Content="离开后自动锁定" />
-                                <TextBlock Text="锁定信号阈值" Margin="0,6,0,0" />
+                                <TextBlock Text="平均信号锁定阈值" Margin="0,6,0,0" />
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />

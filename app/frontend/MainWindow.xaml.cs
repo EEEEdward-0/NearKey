@@ -117,9 +117,13 @@ public partial class MainWindow : Window
             var withinRange = status.GetValueOrDefault("near", "0") == "1";
             StatusText.Text = !online ? "后台未运行" : withinRange ? "解锁条件已满足" : "等待解锁条件";
             MeanText.Text = detected == "0" ? "-- dBm" : $"{signal} dBm";
-            DeviceCountText.Text = $"已检测 {detected} / 已选择 {selected} 台设备";
-            BluetoothStateText.Text = status.GetValueOrDefault("bluetooth_near", "0") == "1"
-                ? "蓝牙：已达到阈值" : "蓝牙：未达到阈值";
+            DeviceCountText.Text = $"参与平均 {detected} / 已选择 {selected} 台";
+            // Compare against the backend's saved threshold, not the unsaved slider value.
+            var threshold = status.GetValueOrDefault("unlock_threshold",
+                _backend.ReadSettings().UnlockThreshold.ToString());
+            var bluetoothNear = status.GetValueOrDefault("bluetooth_near", "0") == "1";
+            BluetoothStateText.Text = detected == "0" ? "蓝牙：无近期信号" :
+                $"蓝牙平均 {signal} dBm {(bluetoothNear ? "≥" : "<")} {threshold} dBm\n{(bluetoothNear ? "已达到解锁阈值" : "未达到解锁阈值")}";
             LanStateText.Text = status.GetValueOrDefault("mode", "0") == "0"
                 ? "局域网：当前模式未启用"
                 : status.GetValueOrDefault("lan_present", "0") == "1"

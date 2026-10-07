@@ -301,11 +301,13 @@ namespace
                 char status[384];
                 sprintf_s(status,
                     "running=1\nselected=%zu\ndetected=%d\nmean=%d\nnear=%d\n"
-                    "automatic_lock=%d\nlast_signal_tick=%llu\nmode=%d\nbluetooth_near=%d\nlan_present=%d\n",
+                    "automatic_lock=%d\nlast_signal_tick=%llu\nmode=%d\nbluetooth_near=%d\nlan_present=%d\n"
+                    "unlock_threshold=%d\nlock_threshold=%d\n",
                     settings.devices.size(), decision.detected, decision.meanRssi,
                     withinUnlockRange ? 1 : 0, settings.automaticLock ? 1 : 0,
                     static_cast<unsigned long long>(decision.newestTick),
-                    settings.unlockMode, decision.unlock ? 1 : 0, lanPresent ? 1 : 0);
+                    settings.unlockMode, decision.unlock ? 1 : 0, lanPresent ? 1 : 0,
+                    settings.unlockThreshold, settings.lockThreshold);
                 WriteText(DataDirectory() + L"\\status.txt", status);
                 std::string list;
                 std::sort(discovered.begin(), discovered.end(), [](const auto& left, const auto& right)

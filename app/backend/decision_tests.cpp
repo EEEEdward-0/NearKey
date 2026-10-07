@@ -28,6 +28,22 @@ int main()
     if (!UnlockConditionMet(1, false, true) || UnlockConditionMet(1, true, false)) return 5;
     if (!UnlockConditionMet(2, true, true) || UnlockConditionMet(2, true, false)) return 6;
 
+    // Apply thresholds to the mean, even when one individual device is strong.
+    result = EvaluateProximity(settings,
+        {{0x111111111111, -40, now}, {0x222222222222, -92, now}}, now);
+    if (result.meanRssi != -66 || result.unlock) return 7;
+    result = EvaluateProximity(settings,
+        {{0x111111111111, -40, now}, {0x222222222222, -90, now}}, now);
+    if (result.meanRssi != -65 || !result.unlock) return 8;
+
+    // Equality permits unlocking but does not count as below the locking threshold.
+    result = EvaluateProximity(settings,
+        {{0x111111111111, -70, now}, {0x222222222222, -90, now}}, now);
+    if (result.meanRssi != -80 || result.outsideLockRange) return 9;
+    result = EvaluateProximity(settings,
+        {{0x111111111111, -72, now}, {0x222222222222, -90, now}}, now);
+    if (result.meanRssi != -81 || !result.outsideLockRange) return 10;
+
     std::puts("Proximity decisions passed.");
     return 0;
 }

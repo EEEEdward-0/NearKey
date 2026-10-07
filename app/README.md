@@ -1,6 +1,6 @@
 # NearKey / 近钥（Windows）
 
-Windows 11 上的本机应用。后台支持开机自动启动的原生 C++ Windows 服务，登录后另有会话后台执行自动锁定；设置界面是单独的 WPF 进程，关闭窗口后不驻留。登录组件沿用 `demo/credential-provider`，保留 Windows 原有 PIN 和密码登录入口。
+Windows 11 上的本机应用。后台支持开机自动启动的原生 C++ Windows 服务，登录后另有会话后台执行自动锁定；设置界面是单独的 WPF 进程，关闭窗口后不驻留。登录组件沿用 `windows/credential-provider`，保留 Windows 原有 PIN 和密码登录入口。
 
 ## 已实现
 
@@ -33,7 +33,7 @@ Windows 11 上的本机应用。后台支持开机自动启动的原生 C++ Wind
 
 1. 安装 Visual Studio 2022 C++ Build Tools、Windows SDK 10.0.26100.0 和 .NET 10 SDK；运行 `app/build.ps1`。
    Windows ARM64 另需安装 Visual Studio 的 ARM64 C++ 工具组件，再运行 `app/build-arm64.ps1`。此脚本编译 ARM64 后台、登录组件和密码配置程序，并发布 `win-arm64` 设置界面。交叉编译已在当前电脑完成；仍需在 Windows ARM64 实机验收。
-2. 首次安装前，按 `demo/README.md` 在本机交互窗口配置 Windows 登录密码。不要把密码放在聊天、命令行或项目文件中。
+2. 首次安装前，按 `windows/README.md` 在本机交互窗口配置 Windows 登录密码。不要把密码放在聊天、命令行或项目文件中。
 3. 以管理员身份运行 `app/install-app.ps1`。它会安装登录组件和应用文件，并创建开始菜单“蓝牙靠近解锁”快捷方式。
 4. 打开“蓝牙靠近解锁”，选择设备、调整规则并保存。安装服务后，配置写到 `%PROGRAMDATA%\BluetoothUnlock\<账户 SID>\settings.ini`；首次安装从原 `%LOCALAPPDATA%\BluetoothUnlock` 迁移，后续更新保留已保存的服务配置。
 

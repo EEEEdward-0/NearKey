@@ -16,8 +16,9 @@ function Copy-AppFile([string]$sourcePath, [string]$destinationPath) {
     }
 }
 $root = Split-Path $PSScriptRoot -Parent
-$backend = Join-Path $PSScriptRoot 'backend\x64\Release\BluetoothBackend.exe'
-$uiDirectory = Join-Path $PSScriptRoot 'frontend\bin\publish'
+$platform = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString() -eq 'Arm64') { 'ARM64' } else { 'x64' }
+$backend = Join-Path $PSScriptRoot "backend\$platform\Release\BluetoothBackend.exe"
+$uiDirectory = Join-Path $PSScriptRoot $(if ($platform -eq 'ARM64') { 'frontend\bin\publish-arm64' } else { 'frontend\bin\publish' })
 $destination = Join-Path $env:ProgramFiles 'BluetoothUnlockDemo'
 if (-not (Test-Path -LiteralPath $backend) -or
     -not (Test-Path -LiteralPath (Join-Path $uiDirectory 'BluetoothUnlock.UI.exe'))) {
@@ -72,12 +73,14 @@ foreach ($name in @('BluetoothUnlock.UI.exe', 'BluetoothUnlock.UI.dll',
                     'BluetoothUnlock.UI.deps.json', 'BluetoothUnlock.UI.runtimeconfig.json')) {
     Copy-AppFile (Join-Path $uiDirectory $name) (Join-Path $destination $name)
 }
-$shortcutPath = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\蓝牙靠近解锁.lnk'
+$shortcutPath = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\近钥 NearKey.lnk'
 $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
 $shortcut.TargetPath = Join-Path $destination 'BluetoothUnlock.UI.exe'
 $shortcut.WorkingDirectory = $destination
-$shortcut.Description = '蓝牙靠近解锁设置'
+$shortcut.Description = '近钥 NearKey 设置'
 $shortcut.Save()
+$oldShortcut = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\蓝牙靠近解锁.lnk'
+Remove-Item -LiteralPath $oldShortcut -ErrorAction SilentlyContinue
 # Shared data is writable only by the bound account, administrators and SYSTEM.
 $dataRoot = Join-Path $env:ProgramData 'BluetoothUnlock'
 $dataDirectory = Join-Path $dataRoot $identity.User.Value
@@ -114,8 +117,9 @@ try {
         $changed = Invoke-CimMethod -Query "SELECT * FROM Win32_Service WHERE Name='BluetoothUnlockService'" -MethodName Change -Arguments @{ PathName = $binaryPath; StartMode = 'Automatic'; StartName = 'LocalSystem' }
         if ($changed.ReturnValue -ne 0) { throw "服务更新失败：$($changed.ReturnValue)" }
     } else {
-        New-Service -Name $serviceName -BinaryPathName $binaryPath -StartupType Automatic -DisplayName 'Bluetooth proximity login' | Out-Null
+        New-Service -Name $serviceName -BinaryPathName $binaryPath -StartupType Automatic -DisplayName 'NearKey proximity service' | Out-Null
     }
+    Set-Service -Name $serviceName -DisplayName 'NearKey proximity service'
     & sc.exe failure $serviceName reset= 86400 actions= restart/10000/restart/30000/restart/60000
     if ($LASTEXITCODE -ne 0) { throw '服务恢复策略配置失败。' }
     & sc.exe failureflag $serviceName 1

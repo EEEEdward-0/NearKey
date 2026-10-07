@@ -1,0 +1,11 @@
+# Owned by root, mode 0600. Use one or more stable BLE addresses, separated by commas.
+user=YOUR_LINUX_USER
+devices=AA:BB:CC:DD:EE:FF
+mode=bluetooth
+# For mode=lan or mode=both, set one or two IP@Wi-Fi-MAC pairs:
+# lan_devices=192.168.1.20@11:22:33:44:55:66
+unlock_threshold=-65
+lock_threshold=-80
+lock_delay_seconds=60
+automatic_lock=1
+automatic_unlock=1

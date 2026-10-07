@@ -10,7 +10,8 @@ $config = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\BluetoothUnlockDemo' -Er
 if ($config.UserSid -ne $identity.User.Value -or -not $config.Password) {
     throw '请先用当前 Windows 账户运行 BluetoothSetup.exe，完成本机密码配置。'
 }
-$source = Join-Path $PSScriptRoot 'credential-provider\x64\Release\SampleV2CredentialProvider.dll'
+$platform = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString() -eq 'Arm64') { 'ARM64' } else { 'x64' }
+$source = Join-Path $PSScriptRoot "credential-provider\$platform\Release\SampleV2CredentialProvider.dll"
 $destinationDirectory = Join-Path $env:ProgramFiles 'BluetoothUnlockDemo'
 $destination = Join-Path $destinationDirectory 'BluetoothCredentialProvider.dll'
 if (-not (Test-Path -LiteralPath $source)) { throw '找不到已编译的登录组件。' }
@@ -24,5 +25,5 @@ New-Item -Path $classKey -Force | Out-Null
 Set-Item -LiteralPath $classKey -Value $destination
 New-ItemProperty -LiteralPath $classKey -Name ThreadingModel -Value 'Apartment' -PropertyType String -Force | Out-Null
 New-Item -Path $providerKey -Force | Out-Null
-Set-Item -LiteralPath $providerKey -Value '靠近解锁'
+Set-Item -LiteralPath $providerKey -Value '近钥 NearKey'
 Write-Output '蓝牙登录组件已注册。Windows 原有登录方式仍可使用。'

@@ -675,6 +675,27 @@ int wmain(int argc, wchar_t** argv)
             printf("%s\t%s\n", Utf8(FormatBluetoothAddress(address)).c_str(), Utf8(name).c_str());
         return 0;
     }
+    if (argc == 4 && wcscmp(argv[1], L"--preview") == 0)
+    {
+        wchar_t* signalEnd = nullptr;
+        wchar_t* onlineEnd = nullptr;
+        const long signal = wcstol(argv[2], &signalEnd, 10);
+        const long online = wcstol(argv[3], &onlineEnd, 10);
+        if (!signalEnd || *signalEnd || signal < -127 || signal > 20 ||
+            !onlineEnd || *onlineEnd || online < 0) return 2;
+        const Settings settings = LoadSettings();
+        if (online > static_cast<long>(settings.lanDevices.size())) return 2;
+        const uint64_t now = GetTickCount64();
+        std::vector<Observation> observations;
+        if (!settings.devices.empty()) observations.push_back({settings.devices.front().address, static_cast<int>(signal), now});
+        const Decision decision = EvaluateProximity(settings, observations, now);
+        const bool lan = AllLanDevicesOnline(static_cast<int>(settings.lanDevices.size()), static_cast<int>(online));
+        const bool eligible = settings.automaticUnlock && UnlockConditionMet(settings.unlockMode, decision.unlock, lan);
+        printf("detected=%d\nmean=%d\nbluetooth=%d\nlan=%d\nunlock=%d\nlock_counting=%d\n",
+            decision.detected, decision.meanRssi, decision.unlock ? 1 : 0, lan ? 1 : 0,
+            eligible ? 1 : 0, settings.automaticLock && !settings.devices.empty() && decision.outsideLockRange ? 1 : 0);
+        return 0;
+    }
     if (argc == 1 || (argc == 2 && wcscmp(argv[1], L"--run") == 0))
         return ServiceAccountSid().empty() ? RunMonitor() : RunSessionAgent();
     return RunCommand(argc, argv);

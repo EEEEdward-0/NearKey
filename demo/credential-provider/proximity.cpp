@@ -126,23 +126,16 @@ bool IsUnlockConditionMet(PCWSTR userSid, DWORD* unlockKey)
     DWORD serverPid = 0;
     HANDLE process = nullptr;
     HANDLE token = nullptr;
-    PSID expectedSid = nullptr;
     bool trusted = false;
     if (GetNamedPipeServerProcessId(pipe, &serverPid) &&
         (process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, serverPid)) != nullptr &&
-        OpenProcessToken(process, TOKEN_QUERY, &token) &&
-        ConvertStringSidToSidW(userSid, &expectedSid))
+        OpenProcessToken(process, TOKEN_QUERY, &token))
     {
         DWORD bytes = 0;
         GetTokenInformation(token, TokenUser, nullptr, 0, &bytes);
         std::vector<BYTE> tokenData(bytes);
-        trusted = bytes != 0 &&
-            GetTokenInformation(token, TokenUser, tokenData.data(), bytes, &bytes) &&
-            EqualSid(reinterpret_cast<TOKEN_USER*>(tokenData.data())->User.Sid, expectedSid) &&
-            IsExistingSessionForUser(userSid);
-        // Pre-logon packets are accepted only from SYSTEM running the registered,
-        // administrator-installed service executable, bound to this account.
-        if (!trusted && bytes && GetTokenInformation(token, TokenUser, tokenData.data(), bytes, &bytes) &&
+        // Only the administrator-installed SYSTEM service can assert proximity.
+        if (bytes && GetTokenInformation(token, TokenUser, tokenData.data(), bytes, &bytes) &&
             IsSupportedLoginForUser(userSid) &&
             IsWellKnownSid(reinterpret_cast<TOKEN_USER*>(tokenData.data())->User.Sid, WinLocalSystemSid))
         {
@@ -157,7 +150,6 @@ bool IsUnlockConditionMet(PCWSTR userSid, DWORD* unlockKey)
                 _wcsicmp(image, installed.data()) == 0;
         }
     }
-    LocalFree(expectedSid);
     if (token) CloseHandle(token);
     if (process) CloseHandle(process);
     if (!trusted)

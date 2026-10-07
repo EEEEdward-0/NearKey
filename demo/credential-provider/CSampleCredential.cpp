@@ -77,7 +77,7 @@ HRESULT CSampleCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
     // Initialize the String value of all the fields.
     if (SUCCEEDED(hr))
     {
-        hr = SHStrDupW(L"靠近解锁", &_rgFieldStrings[SFI_LABEL]);
+        hr = SHStrDupW(L"近钥 NearKey", &_rgFieldStrings[SFI_LABEL]);
     }
     if (SUCCEEDED(hr))
     {

@@ -1,8 +1,15 @@
 # Visual Studio and MSBuild output
 .vs/
 **/x64/
+**/ARM64/
 **/bin/
 **/obj/
+app/backend/BluetoothBackend/
+demo/credential-provider/SampleV2.*/
+demo/setup/BluetoothSetup/
+.vscode/
+dist/
+release/
 *.obj
 *.pdb
 *.ilk
@@ -10,3 +17,6 @@
 # Local probe results; they describe this computer and are generated on demand
 demo/*-result.txt
 demo/diagnostic-result.json
+demo/password-comparison-result.txt
+demo/password-verification-result.txt
+demo/system-probe-result.txt

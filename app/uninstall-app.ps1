@@ -40,8 +40,10 @@ Get-CimInstance Win32_Process -Filter "Name = 'BluetoothBackend.exe'" |
         Wait-Process -Id $_.ProcessId -Timeout 10 -ErrorAction SilentlyContinue
     }
 Remove-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'BluetoothUnlock' -ErrorAction SilentlyContinue
-$shortcut = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\蓝牙靠近解锁.lnk'
+$shortcut = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\近钥 NearKey.lnk'
 if (Test-Path -LiteralPath $shortcut) { Remove-Item -LiteralPath $shortcut -Force }
+$oldShortcut = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\蓝牙靠近解锁.lnk'
+if (Test-Path -LiteralPath $oldShortcut) { Remove-Item -LiteralPath $oldShortcut -Force }
 $root = Split-Path $PSScriptRoot -Parent
 & (Join-Path $root 'demo\uninstall-demo.ps1')
 foreach ($name in @('BluetoothBackend.exe', 'BluetoothUnlock.UI.exe', 'BluetoothUnlock.UI.dll',

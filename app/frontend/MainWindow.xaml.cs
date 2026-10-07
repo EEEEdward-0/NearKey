@@ -12,14 +12,16 @@ public partial class MainWindow : Window
     private readonly BackendClient _backend = new();
     private readonly DispatcherTimer _refreshTimer = new() { Interval = TimeSpan.FromSeconds(4) };
     private readonly Forms.NotifyIcon _trayIcon;
+    private readonly System.IO.Stream _iconStream;
 
     public MainWindow()
     {
         InitializeComponent();
+        _iconStream = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/Assets/App.ico")).Stream;
         _trayIcon = new Forms.NotifyIcon
         {
-            Icon = System.Drawing.SystemIcons.Application,
-            Text = "靠近解锁",
+            Icon = new System.Drawing.Icon(_iconStream),
+            Text = "近钥 NearKey",
             Visible = true,
             ContextMenuStrip = new Forms.ContextMenuStrip()
         };
@@ -29,7 +31,7 @@ public partial class MainWindow : Window
         _trayIcon.DoubleClick += (_, _) => Dispatcher.Invoke(ShowFromTray);
         StateChanged += (_, _) => { if (WindowState == WindowState.Minimized) Hide(); };
         Loaded += OnLoaded;
-        Closed += (_, _) => { _refreshTimer.Stop(); _trayIcon.Visible = false; _trayIcon.Dispose(); };
+        Closed += (_, _) => { _refreshTimer.Stop(); _trayIcon.Visible = false; _trayIcon.Icon.Dispose(); _trayIcon.Dispose(); _iconStream.Dispose(); };
         UnlockSlider.ValueChanged += (_, _) => UnlockValue.Text = $"{UnlockSlider.Value:0} dBm";
         LockSlider.ValueChanged += (_, _) => LockValue.Text = $"{LockSlider.Value:0} dBm";
     }
@@ -39,6 +41,37 @@ public partial class MainWindow : Window
         Show();
         WindowState = WindowState.Normal;
         Activate();
+    }
+
+    private async void OnPreview(object sender, RoutedEventArgs e)
+    {
+        if (!int.TryParse(PreviewRssiBox.Text, out var rssi) || rssi is < -127 or > 20 ||
+            !int.TryParse(PreviewLanCountBox.Text, out var online) || online < 0)
+        {
+            PreviewResult.Text = "请输入 -127 至 20 dBm 的信号值，以及非负的在线台数。";
+            return;
+        }
+        try
+        {
+            var output = await _backend.RunCommandAsync("--preview", rssi.ToString(), online.ToString());
+            var result = output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => line.Trim().Split('=', 2))
+                .Where(parts => parts.Length == 2)
+                .ToDictionary(parts => parts[0], parts => parts[1]);
+            var settings = _backend.ReadSettings();
+            var bluetooth = result.GetValueOrDefault("bluetooth") == "1";
+            var lan = result.GetValueOrDefault("lan") == "1";
+            var eligible = result.GetValueOrDefault("unlock") == "1";
+            var lockCounting = result.GetValueOrDefault("lock_counting") == "1";
+            var reasons = new List<string>();
+            if (!settings.AutomaticUnlock) reasons.Add("靠近解锁已关闭");
+            if (settings.UnlockMode != 1 && !bluetooth) reasons.Add("蓝牙信号未达到解锁阈值");
+            if (settings.UnlockMode != 0 && !lan) reasons.Add("局域网在线设备不足");
+            PreviewResult.Text = $"预演结果：{(eligible ? "满足解锁条件" : "不能解锁")}。" +
+                (reasons.Count > 0 ? $"原因：{string.Join("；", reasons)}。" : "所需条件均通过。") +
+                $" 自动锁定：{(lockCounting ? "若持续离开将开始倒计时" : "不会开始离开倒计时")}。";
+        }
+        catch (Exception error) { PreviewResult.Text = $"预演失败：{error.Message}"; }
     }
 
     private void OnNavigate(object sender, RoutedEventArgs e)
@@ -337,7 +370,7 @@ public partial class MainWindow : Window
     private void ShowError(Exception error)
     {
         HintText.Text = error.Message;
-        System.Windows.MessageBox.Show(this, error.Message, "蓝牙靠近解锁", MessageBoxButton.OK,
+        System.Windows.MessageBox.Show(this, error.Message, "近钥 NearKey", MessageBoxButton.OK,
             MessageBoxImage.Warning);
     }
 }

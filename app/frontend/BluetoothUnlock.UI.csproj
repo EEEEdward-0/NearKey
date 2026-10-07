@@ -7,5 +7,11 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>BluetoothUnlock.UI</AssemblyName>
+    <Product>NearKey 近钥</Product>
+    <AssemblyTitle>NearKey</AssemblyTitle>
+    <ApplicationIcon>Assets\App.ico</ApplicationIcon>
   </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="Assets\App.ico" />
+  </ItemGroup>
 </Project>

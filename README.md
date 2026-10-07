@@ -24,8 +24,8 @@ NearKey 不会替换 Windows 或 Linux 原来的 PIN、密码登录。第一次�
 
 打开 [v1.0.0 Release](https://github.com/EEEEdward-0/NearKey/releases/tag/v1.0.0)，下载对应系统的压缩包：
 
-- [Windows x64 一键安装包](https://github.com/EEEEdward-0/NearKey/releases/download/v1.0.0/NearKey-Setup-x64.exe)（双击安装）`r`n- [Windows x64 压缩包](https://github.com/EEEEdward-0/NearKey/releases/tag/v1.0.0)
-- [Windows ARM64 一键安装包](https://github.com/EEEEdward-0/NearKey/releases/download/v1.0.0/NearKey-Setup-arm64.exe)（双击安装）`r`n- [Windows ARM64 压缩包](https://github.com/EEEEdward-0/NearKey/releases/tag/v1.0.0)
+- [Windows x64 一键安装](https://github.com/EEEEdward-0/NearKey/releases/download/v1.0.0/NearKey-Setup-x64.exe)（双击安装） 
+- [Windows ARMx64 一键安装](https://github.com/EEEEdward-0/NearKey/releases/download/v1.0.0/NearKey-Setup-arm64.exe)（双击安装）
 - [Ubuntu x64 / ARM64](https://github.com/EEEEdward-0/NearKey/releases/tag/v1.0.0)
 
 下载后解压，再按照下面的 Windows 或 Linux 说明操作。

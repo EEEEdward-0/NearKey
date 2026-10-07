@@ -92,6 +92,17 @@ bool IsExistingSessionForUser(PCWSTR userSid)
     return matches;
 }
 
+bool IsSupportedLoginForUser(PCWSTR userSid)
+{
+    std::vector<wchar_t> bound;
+    if (!userSid || !ReadString(HKEY_LOCAL_MACHINE, kConfigKey, L"UserSid", bound) ||
+        wcscmp(bound.data(), userSid) != 0) return false;
+    if (IsExistingSessionForUser(userSid)) return true;
+    DWORD enabled = 0, bytes = sizeof(enabled);
+    return RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\BluetoothUnlockApp", L"ServiceEnabled", RRF_RT_REG_DWORD,
+        nullptr, &enabled, &bytes) == ERROR_SUCCESS && enabled == 1;
+}
+
 bool IsUnlockConditionMet(PCWSTR userSid, DWORD* unlockKey)
 {
     if (unlockKey) *unlockKey = VK_RETURN;
@@ -127,7 +138,24 @@ bool IsUnlockConditionMet(PCWSTR userSid, DWORD* unlockKey)
         std::vector<BYTE> tokenData(bytes);
         trusted = bytes != 0 &&
             GetTokenInformation(token, TokenUser, tokenData.data(), bytes, &bytes) &&
-            EqualSid(reinterpret_cast<TOKEN_USER*>(tokenData.data())->User.Sid, expectedSid);
+            EqualSid(reinterpret_cast<TOKEN_USER*>(tokenData.data())->User.Sid, expectedSid) &&
+            IsExistingSessionForUser(userSid);
+        // Pre-logon packets are accepted only from SYSTEM running the registered,
+        // administrator-installed service executable, bound to this account.
+        if (!trusted && bytes && GetTokenInformation(token, TokenUser, tokenData.data(), bytes, &bytes) &&
+            IsSupportedLoginForUser(userSid) &&
+            IsWellKnownSid(reinterpret_cast<TOKEN_USER*>(tokenData.data())->User.Sid, WinLocalSystemSid))
+        {
+            DWORD enabled = 0, size = sizeof(enabled);
+            std::vector<wchar_t> installed;
+            wchar_t image[MAX_PATH] = {};
+            DWORD length = ARRAYSIZE(image);
+            trusted = RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\BluetoothUnlockApp", L"ServiceEnabled", RRF_RT_REG_DWORD,
+                nullptr, &enabled, &size) == ERROR_SUCCESS && enabled == 1 &&
+                ReadString(HKEY_LOCAL_MACHINE, L"SOFTWARE\\BluetoothUnlockApp", L"ServiceExecutable", installed) &&
+                QueryFullProcessImageNameW(process, 0, image, &length) &&
+                _wcsicmp(image, installed.data()) == 0;
+        }
     }
     LocalFree(expectedSid);
     if (token) CloseHandle(token);

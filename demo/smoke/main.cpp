@@ -113,6 +113,12 @@ using DllGetClassObjectFunction = HRESULT (STDAPICALLTYPE *)(REFCLSID, REFIID, v
 
 int wmain(int argc, wchar_t **argv)
 {
+    if (argc == 3 && wcscmp(argv[1], L"--login-check") == 0)
+    {
+        const bool allowed = IsSupportedLoginForUser(argv[2]);
+        std::printf("Bound account login enabled: %s\n", allowed ? "yes" : "no");
+        return allowed ? 0 : 12;
+    }
     if (argc == 3 && wcscmp(argv[1], L"--session-check") == 0)
     {
         const bool existing = IsExistingSessionForUser(argv[2]);

@@ -86,6 +86,7 @@ public partial class MainWindow : Window
             LanIpBox2.Text = settings.LanDevices.ElementAtOrDefault(1)?.Ip ?? "";
             LanMacBox2.Text = settings.LanDevices.ElementAtOrDefault(1)?.Mac ?? "";
             StartupCheck.IsChecked = _backend.StartupEnabled();
+            StartupCheck.IsEnabled = !_backend.ServiceInstalled;
             DelayBox.SelectedItem = DelayBox.Items.OfType<ComboBoxItem>()
                 .FirstOrDefault(item => item.Tag?.ToString() == settings.LockDelaySeconds.ToString())
                 ?? DelayBox.Items[1];
@@ -151,6 +152,9 @@ public partial class MainWindow : Window
     }
 
     private static string TranslateEvent(string line) => line
+        .Replace("service_monitor_started", "开机服务已启动")
+        .Replace("bluetooth_waiting", "等待蓝牙就绪")
+        .Replace("monitor_failed", "后台异常停止，请检查服务")
         .Replace("monitor_started", "后台已启动")
         .Replace("monitor_stopped", "后台已停止")
         .Replace("unlock_range_entered", "进入解锁范围")

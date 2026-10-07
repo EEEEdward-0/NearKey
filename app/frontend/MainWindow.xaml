@@ -281,7 +281,7 @@
                                     <ComboBoxItem Content="120 秒" Tag="120" />
                                     <ComboBoxItem Content="300 秒" Tag="300" />
                                 </ComboBox>
-                                <CheckBox x:Name="StartupCheck" Content="登录 Windows 后自动启动后台" Margin="0,16,0,0" />
+                                <CheckBox x:Name="StartupCheck" Content="登录后自动运行" Margin="0,16,0,0" />
                             </StackPanel>
                         </Border>
                         <Border Background="#EAF1FA" CornerRadius="9" Padding="16">

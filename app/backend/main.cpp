@@ -31,6 +31,32 @@ using namespace winrt::Windows::Devices::Enumeration;
 namespace
 {
     std::atomic<bool> running{true};
+    bool serviceMonitor = false;
+    std::atomic<HANDLE> pipeThreadHandle{nullptr};
+    SERVICE_STATUS_HANDLE serviceHandle = nullptr;
+    SERVICE_STATUS serviceStatus{};
+
+    void ReportServiceState(DWORD state, DWORD error = NO_ERROR)
+    {
+        serviceStatus.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
+        serviceStatus.dwCurrentState = state;
+        serviceStatus.dwControlsAccepted = state == SERVICE_RUNNING ? SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN : 0;
+        serviceStatus.dwWin32ExitCode = error;
+        serviceStatus.dwWaitHint = state == SERVICE_STOP_PENDING ? 60000 : 0;
+        serviceStatus.dwCheckPoint = state == SERVICE_STOP_PENDING ? 1 : 0;
+        SetServiceStatus(serviceHandle, &serviceStatus);
+    }
+
+    DWORD WINAPI ServiceControl(DWORD control, DWORD, void*, void*)
+    {
+        if (control == SERVICE_CONTROL_STOP || control == SERVICE_CONTROL_SHUTDOWN)
+        {
+            running = false;
+            if (auto thread = pipeThreadHandle.load()) CancelSynchronousIo(thread);
+            ReportServiceState(SERVICE_STOP_PENDING);
+        }
+        return NO_ERROR;
+    }
 
     BOOL WINAPI StopOnConsoleEvent(DWORD)
     {
@@ -91,12 +117,14 @@ namespace
         sprintf_s(line, "%04u-%02u-%02u %02u:%02u:%02u\t%s\r\n",
             time.wYear, time.wMonth, time.wDay, time.wHour,
             time.wMinute, time.wSecond, event);
-        const std::wstring path = DataDirectory() + L"\\events.log";
+        const bool sessionLog = !serviceMonitor && !ServiceAccountSid().empty();
+        const auto directory = sessionLog ? DataDirectory() : RuntimeDirectory();
+        const std::wstring path = directory + (sessionLog ? L"\\session-events.log" : L"\\events.log");
         WIN32_FILE_ATTRIBUTE_DATA attributes{};
         if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attributes) &&
             attributes.nFileSizeLow > 1024 * 1024 && attributes.nFileSizeHigh == 0)
         {
-            const std::wstring previous = DataDirectory() + L"\\events.previous.log";
+            const std::wstring previous = directory + (sessionLog ? L"\\session-events.previous.log" : L"\\events.previous.log");
             MoveFileExW(path.c_str(), previous.c_str(), MOVEFILE_REPLACE_EXISTING);
         }
         HANDLE file = CreateFileW(path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ,
@@ -151,10 +179,12 @@ namespace
             {
                 const ProximityPacket packet = {
                     kProximityPacketMagic, kProximityPacketVersion,
-                    lastEligible.load(), meanRssi.load(), unlockKey.load()
+                    running ? lastEligible.load() : 0, meanRssi.load(), unlockKey.load()
                 };
                 DWORD written = 0;
                 WriteFile(pipe, &packet, sizeof(packet), &written, nullptr);
+                // Disconnect discards unread data, so wait for the client to consume it.
+                // Service stop cancels this synchronous wait through the pipe thread handle.
                 FlushFileBuffers(pipe);
                 DisconnectNamedPipe(pipe);
             }
@@ -162,17 +192,23 @@ namespace
         }
     }
 
-    int RunMonitor()
+    int RunMonitor(const std::wstring& serviceSid = {})
     {
         PWSTR sid = nullptr;
-        if (!CurrentSid(sid)) return 1;
+        if (!serviceSid.empty())
+        {
+            sid = static_cast<PWSTR>(LocalAlloc(LMEM_FIXED, (serviceSid.size() + 1) * sizeof(wchar_t)));
+            if (!sid) return 1;
+            wcscpy_s(sid, serviceSid.size() + 1, serviceSid.c_str());
+        }
+        else if (!CurrentSid(sid)) return 1;
         wchar_t pipeName[256];
         if (!BuildProximityPipeName(sid, pipeName, ARRAYSIZE(pipeName)))
         {
             LocalFree(sid);
             return 1;
         }
-        const std::wstring mutexName = std::wstring(L"Local\\BluetoothUnlockDemo-") + sid;
+        const std::wstring mutexName = std::wstring(serviceMonitor ? L"Global\\BluetoothUnlockDemo-" : L"Local\\BluetoothUnlockDemo-") + sid;
         LocalFree(sid);
         HANDLE singleton = CreateMutexW(nullptr, TRUE, mutexName.c_str());
         if (!singleton || GetLastError() == ERROR_ALREADY_EXISTS)
@@ -184,8 +220,6 @@ namespace
         std::atomic<ULONGLONG> lastEligible{0};
         std::atomic<LONG> meanRssi{0};
         std::atomic<DWORD> unlockKey{VK_RETURN};
-        std::thread pipeServer(ServeProximity, std::wstring(pipeName),
-            std::cref(lastEligible), std::cref(meanRssi), std::cref(unlockKey));
         SetConsoleCtrlHandler(StopOnConsoleEvent, TRUE);
         winrt::init_apartment();
         BluetoothLEAdvertisementWatcher watcher;
@@ -203,8 +237,13 @@ namespace
             entry.tick = tick;
             if (!name.empty()) entry.name = std::move(name);
         });
-        watcher.Start();
-        LogEvent("monitor_started");
+        bool watcherStarted = false;
+        try { watcher.Start(); watcherStarted = true; }
+        catch (const winrt::hresult_error&) { LogEvent("bluetooth_waiting"); }
+        std::thread pipeServer(ServeProximity, std::wstring(pipeName),
+            std::cref(lastEligible), std::cref(meanRssi), std::cref(unlockKey));
+        pipeThreadHandle = pipeServer.native_handle();
+        LogEvent(serviceMonitor ? "service_monitor_started" : "monitor_started");
         ULONGLONG farSince = 0;
         bool lockedThisAbsence = false;
         bool priorNear = false;
@@ -220,177 +259,259 @@ namespace
         ULONGLONG lastLanRecovery = 0;
         std::vector<bool> lanDeviceOnline;
         std::vector<ULONGLONG> lanLastSeen;
-        while (running)
+        bool monitorFailed = false;
+        try
         {
-            const ULONGLONG now = GetTickCount64();
-            if (!lastPairedRefresh || now - lastPairedRefresh >= 60000)
+            while (running)
             {
-                // Refresh the identity cache independently of the live RSSI observations.
-                try
+                const ULONGLONG now = GetTickCount64();
+                // Bluetooth may not yet be ready during boot; retry without enabling unlock.
+                if (!watcherStarted || watcher.Status() == BluetoothLEAdvertisementWatcherStatus::Aborted)
                 {
-                    std::string list;
-                    for (const auto& [address, name] : PairedBleDevices())
-                        list += Utf8(FormatBluetoothAddress(address)) + "\t" + Utf8(name) + "\n";
-                    WriteText(DataDirectory() + L"\\paired.tsv", list);
+                    try { watcher.Start(); watcherStarted = true; }
+                    catch (const winrt::hresult_error&) { watcherStarted = false; }
                 }
-                catch (const winrt::hresult_error&) {}
-                lastPairedRefresh = now;
-            }
-            const Settings settings = LoadSettings();
-            unlockKey = static_cast<DWORD>(settings.unlockKey);
-            std::vector<Observation> observations;
-            std::vector<std::pair<uint64_t, SeenDevice>> discovered;
-            {
-                std::lock_guard<std::mutex> lock(observationsMutex);
-                for (auto it = seen.begin(); it != seen.end();)
+                if (!lastPairedRefresh || now - lastPairedRefresh >= 60000)
                 {
-                    if (now - it->second.tick > 30000) it = seen.erase(it);
-                    else
+                    // Refresh the identity cache independently of the live RSSI observations.
+                    try
                     {
-                        observations.push_back({it->first, it->second.rssi, it->second.tick});
-                        discovered.push_back(*it);
-                        ++it;
+                        std::string list;
+                        for (const auto& [address, name] : PairedBleDevices())
+                            list += Utf8(FormatBluetoothAddress(address)) + "\t" + Utf8(name) + "\n";
+                        WriteText(RuntimeDirectory() + L"\\paired.tsv", list);
+                    }
+                    catch (const winrt::hresult_error&) {}
+                    lastPairedRefresh = now;
+                }
+                const Settings settings = LoadSettings();
+                unlockKey = static_cast<DWORD>(settings.unlockKey);
+                std::vector<Observation> observations;
+                std::vector<std::pair<uint64_t, SeenDevice>> discovered;
+                {
+                    std::lock_guard<std::mutex> lock(observationsMutex);
+                    for (auto it = seen.begin(); it != seen.end();)
+                    {
+                        if (now - it->second.tick > 30000) it = seen.erase(it);
+                        else
+                        {
+                            observations.push_back({it->first, it->second.rssi, it->second.tick});
+                            discovered.push_back(*it);
+                            ++it;
+                        }
                     }
                 }
-            }
-            const Decision decision = EvaluateProximity(settings, observations, now);
-            if (settings.lanDevices != probedLanDevices)
-            {
-                runtimeLanDevices = settings.lanDevices;
-                lanDeviceOnline.assign(settings.lanDevices.size(), false);
-                lanLastSeen.assign(settings.lanDevices.size(), 0);
-                lastLanRecovery = 0;
-            }
-            if (lanRecovery.valid() && lanRecovery.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
-            {
-                const auto recovered = lanRecovery.get();
-                // Ignore discoveries made for a configuration the user has since changed.
-                if (settings.unlockMode != 0 && settings.lanDevices == recoveryConfig)
+                if (!watcherStarted || watcher.Status() != BluetoothLEAdvertisementWatcherStatus::Started)
+                    observations.clear();
+                const Decision decision = EvaluateProximity(settings, observations, now);
+                if (settings.lanDevices != probedLanDevices)
                 {
-                    if (runtimeLanDevices != recovered) LogEvent("lan_ip_recovered");
-                    runtimeLanDevices = recovered;
+                    runtimeLanDevices = settings.lanDevices;
+                    lanDeviceOnline.assign(settings.lanDevices.size(), false);
+                    lanLastSeen.assign(settings.lanDevices.size(), 0);
+                    lastLanRecovery = 0;
+                }
+                if (lanRecovery.valid() && lanRecovery.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+                {
+                    const auto recovered = lanRecovery.get();
+                    // Ignore discoveries made for a configuration the user has since changed.
+                    if (settings.unlockMode != 0 && settings.lanDevices == recoveryConfig)
+                    {
+                        if (runtimeLanDevices != recovered) LogEvent("lan_ip_recovered");
+                        runtimeLanDevices = recovered;
+                        lastLanProbe = 0;
+                    }
+                }
+                if (settings.unlockMode == 0)
+                {
+                    lanPresent = false;
+                    lanOnline = 0;
+                    lanDeviceOnline.assign(settings.lanDevices.size(), false);
                     lastLanProbe = 0;
                 }
-            }
-            if (settings.unlockMode == 0)
-            {
-                lanPresent = false;
-                lanOnline = 0;
-                lanDeviceOnline.assign(settings.lanDevices.size(), false);
-                lastLanProbe = 0;
-            }
-            else if (!lastLanProbe || now - lastLanProbe >= 10000 ||
-                settings.lanDevices != probedLanDevices)
-            {
-                lanOnline = 0;
-                FILETIME utc{};
-                GetSystemTimeAsFileTime(&utc);
-                const ULONGLONG epochSeconds = ((static_cast<ULONGLONG>(utc.dwHighDateTime) << 32) |
-                    utc.dwLowDateTime) / 10000000ULL - 11644473600ULL;
-                for (size_t i = 0; i < runtimeLanDevices.size(); ++i)
+                else if (!lastLanProbe || now - lastLanProbe >= 10000 ||
+                    settings.lanDevices != probedLanDevices)
                 {
-                    lanDeviceOnline[i] = ProbeLanDevice(runtimeLanDevices[i].ipv4, runtimeLanDevices[i].mac);
-                    if (lanDeviceOnline[i]) { ++lanOnline; lanLastSeen[i] = epochSeconds; }
-                }
-                lanPresent = AllLanDevicesOnline(static_cast<int>(settings.lanDevices.size()), lanOnline);
-                lastLanProbe = now;
-                probedLanDevices = settings.lanDevices;
-                if (!lanPresent && !lanRecovery.valid() &&
-                    (!lastLanRecovery || now - lastLanRecovery >= 60000))
-                {
-                    lastLanRecovery = now;
-                    recoveryConfig = settings.lanDevices;
-                    // Discovery can take seconds. Keep publishing the offline state while it runs.
-                    lanRecovery = std::async(std::launch::async, [devices = runtimeLanDevices]() mutable
+                    lanOnline = 0;
+                    FILETIME utc{};
+                    GetSystemTimeAsFileTime(&utc);
+                    const ULONGLONG epochSeconds = ((static_cast<ULONGLONG>(utc.dwHighDateTime) << 32) |
+                        utc.dwLowDateTime) / 10000000ULL - 11644473600ULL;
+                    for (size_t i = 0; i < runtimeLanDevices.size(); ++i)
                     {
-                        for (auto& device : devices)
-                            if (device.mac && !ProbeLanDevice(device.ipv4, device.mac))
-                                ResolveLanDevice(device.ipv4, device.mac);
-                        return devices;
-                    });
-                }
-            }
-            const bool withinUnlockRange = settings.automaticUnlock &&
-                UnlockConditionMet(settings.unlockMode, decision.unlock, lanPresent);
-            if (withinUnlockRange)
-            {
-                lastEligible = settings.unlockMode == 0 ? decision.newestTick : now;
-                meanRssi = settings.unlockMode == 1 ? -50 : decision.meanRssi;
-            }
-            else
-            {
-                lastEligible = 0;
-                meanRssi = 0;
-            }
-            if (withinUnlockRange != priorNear)
-            {
-                LogEvent(withinUnlockRange ? "unlock_range_entered" : "unlock_range_left");
-                priorNear = withinUnlockRange;
-            }
-            // Automatic locking keeps its original Bluetooth rule in every
-            // unlock mode; an idle iPhone Wi-Fi radio must not lock the PC.
-            if (settings.automaticLock && !settings.devices.empty() && decision.outsideLockRange)
-            {
-                if (!farSince) farSince = now;
-                if (!lockedThisAbsence && now - farSince >= settings.lockDelaySeconds * 1000ULL)
-                {
-                    if (LockWorkStation())
+                        lanDeviceOnline[i] = ProbeLanDevice(runtimeLanDevices[i].ipv4, runtimeLanDevices[i].mac);
+                        if (lanDeviceOnline[i]) { ++lanOnline; lanLastSeen[i] = epochSeconds; }
+                    }
+                    lanPresent = AllLanDevicesOnline(static_cast<int>(settings.lanDevices.size()), lanOnline);
+                    lastLanProbe = now;
+                    probedLanDevices = settings.lanDevices;
+                    if (!lanPresent && !lanRecovery.valid() &&
+                        (!lastLanRecovery || now - lastLanRecovery >= 60000))
                     {
-                        LogEvent("automatic_lock");
-                        lockedThisAbsence = true;
+                        lastLanRecovery = now;
+                        recoveryConfig = settings.lanDevices;
+                        // Discovery can take seconds. Keep publishing the offline state while it runs.
+                        lanRecovery = std::async(std::launch::async, [devices = runtimeLanDevices]() mutable
+                        {
+                            for (auto& device : devices)
+                                if (device.mac && !ProbeLanDevice(device.ipv4, device.mac))
+                                    ResolveLanDevice(device.ipv4, device.mac);
+                            return devices;
+                        });
                     }
                 }
-            }
-            else
-            {
-                farSince = 0;
-                lockedThisAbsence = false;
-            }
-            if (now - lastSnapshot >= 4000)
-            {
-                char status[384];
-                sprintf_s(status,
-                    "running=1\nselected=%zu\ndetected=%d\nmean=%d\nnear=%d\n"
-                    "automatic_lock=%d\nlast_signal_tick=%llu\nmode=%d\nbluetooth_near=%d\nlan_present=%d\n"
-                    "unlock_threshold=%d\nlock_threshold=%d\nlan_online=%d\nlan_selected=%zu\n",
-                    settings.devices.size(), decision.detected, decision.meanRssi,
-                    withinUnlockRange ? 1 : 0, settings.automaticLock ? 1 : 0,
-                    static_cast<unsigned long long>(decision.newestTick),
-                    settings.unlockMode, decision.unlock ? 1 : 0, lanPresent ? 1 : 0,
-                    settings.unlockThreshold, settings.lockThreshold, lanOnline, settings.lanDevices.size());
-                std::string snapshot = status;
-                for (size_t i = 0; i < runtimeLanDevices.size(); ++i)
+                const bool withinUnlockRange = settings.automaticUnlock &&
+                    UnlockConditionMet(settings.unlockMode, decision.unlock, lanPresent);
+                if (withinUnlockRange)
                 {
-                    const auto prefix = "lan_device" + std::to_string(i);
-                    snapshot += prefix + "_mac=" + Utf8(FormatBluetoothAddress(runtimeLanDevices[i].mac)) + "\n";
-                    snapshot += prefix + "_ip=" + Utf8(runtimeLanDevices[i].ipv4) + "\n";
-                    snapshot += prefix + "_online=" + (lanDeviceOnline[i] ? "1\n" : "0\n");
-                    snapshot += prefix + "_last_seen=" + std::to_string(lanLastSeen[i]) + "\n";
+                    lastEligible = settings.unlockMode == 0 ? decision.newestTick : now;
+                    meanRssi = settings.unlockMode == 1 ? -50 : decision.meanRssi;
                 }
-                WriteText(DataDirectory() + L"\\status.txt", snapshot);
-                std::string list;
-                std::sort(discovered.begin(), discovered.end(), [](const auto& left, const auto& right)
-                { return left.second.tick > right.second.tick; });
-                for (size_t i = 0; i < discovered.size() && i < 80; ++i)
+                else
                 {
-                    list += Utf8(FormatBluetoothAddress(discovered[i].first)) + "\t" +
-                        std::to_string(discovered[i].second.rssi) + "\t" +
-                        Utf8(CleanName(discovered[i].second.name)) + "\t" +
-                        std::to_string((now - discovered[i].second.tick) / 1000) + "\n";
+                    lastEligible = 0;
+                    meanRssi = 0;
                 }
-                WriteText(DataDirectory() + L"\\discovered.tsv", list);
-                lastSnapshot = now;
+                if (withinUnlockRange != priorNear)
+                {
+                    LogEvent(withinUnlockRange ? "unlock_range_entered" : "unlock_range_left");
+                    priorNear = withinUnlockRange;
+                }
+                // Automatic locking keeps its original Bluetooth rule in every
+                // unlock mode; an idle iPhone Wi-Fi radio must not lock the PC.
+                if (!serviceMonitor && settings.automaticLock && !settings.devices.empty() && decision.outsideLockRange)
+                {
+                    if (!farSince) farSince = now;
+                    if (!lockedThisAbsence && now - farSince >= settings.lockDelaySeconds * 1000ULL)
+                    {
+                        if (LockWorkStation())
+                        {
+                            LogEvent("automatic_lock");
+                            lockedThisAbsence = true;
+                        }
+                    }
+                }
+                else
+                {
+                    farSince = 0;
+                    lockedThisAbsence = false;
+                }
+                if (now - lastSnapshot >= 4000)
+                {
+                    char status[384];
+                    sprintf_s(status,
+                        "running=1\nselected=%zu\ndetected=%d\nmean=%d\nnear=%d\n"
+                        "automatic_lock=%d\nlast_signal_tick=%llu\nmode=%d\nbluetooth_near=%d\nlan_present=%d\n"
+                        "unlock_threshold=%d\nlock_threshold=%d\nlan_online=%d\nlan_selected=%zu\n",
+                        settings.devices.size(), decision.detected, decision.meanRssi,
+                        withinUnlockRange ? 1 : 0, settings.automaticLock ? 1 : 0,
+                        static_cast<unsigned long long>(decision.newestTick),
+                        settings.unlockMode, decision.unlock ? 1 : 0, lanPresent ? 1 : 0,
+                        settings.unlockThreshold, settings.lockThreshold, lanOnline, settings.lanDevices.size());
+                    std::string snapshot = status;
+                    snapshot += "snapshot_tick=" + std::to_string(now) + "\n";
+                    snapshot += "outside_lock_range=" + std::to_string(decision.outsideLockRange ? 1 : 0) + "\n";
+                    snapshot += "service_monitor=" + std::to_string(serviceMonitor ? 1 : 0) + "\n";
+                    for (size_t i = 0; i < runtimeLanDevices.size(); ++i)
+                    {
+                        const auto prefix = "lan_device" + std::to_string(i);
+                        snapshot += prefix + "_mac=" + Utf8(FormatBluetoothAddress(runtimeLanDevices[i].mac)) + "\n";
+                        snapshot += prefix + "_ip=" + Utf8(runtimeLanDevices[i].ipv4) + "\n";
+                        snapshot += prefix + "_online=" + (lanDeviceOnline[i] ? "1\n" : "0\n");
+                        snapshot += prefix + "_last_seen=" + std::to_string(lanLastSeen[i]) + "\n";
+                    }
+                    WriteText(RuntimeDirectory() + L"\\status.txt", snapshot);
+                    std::string list;
+                    std::sort(discovered.begin(), discovered.end(), [](const auto& left, const auto& right)
+                    { return left.second.tick > right.second.tick; });
+                    for (size_t i = 0; i < discovered.size() && i < 80; ++i)
+                    {
+                        list += Utf8(FormatBluetoothAddress(discovered[i].first)) + "\t" +
+                            std::to_string(discovered[i].second.rssi) + "\t" +
+                            Utf8(CleanName(discovered[i].second.name)) + "\t" +
+                            std::to_string((now - discovered[i].second.tick) / 1000) + "\n";
+                    }
+                    WriteText(RuntimeDirectory() + L"\\discovered.tsv", list);
+                    lastSnapshot = now;
+                }
+                Sleep(2000);
             }
-            Sleep(2000);
         }
-        watcher.Stop();
+        catch (...) { monitorFailed = true; running = false; LogEvent("monitor_failed"); }
+        lastEligible = 0;
+        try { watcher.Stop(); } catch (const winrt::hresult_error&) {}
         watcher.Received(received);
+        pipeThreadHandle = nullptr;
+        CancelSynchronousIo(pipeServer.native_handle());
         HANDLE wake = CreateFileW(pipeName, GENERIC_READ, 0, nullptr, OPEN_EXISTING, 0, nullptr);
         if (wake != INVALID_HANDLE_VALUE) CloseHandle(wake);
         pipeServer.join();
         LogEvent("monitor_stopped");
         CloseHandle(singleton);
+        return monitorFailed ? 1 : 0;
+    }
+
+    int RunSessionAgent()
+    {
+        PWSTR sid = nullptr;
+        if (!CurrentSid(sid)) return 1;
+        const auto owner = ServiceAccountSid();
+        const bool matches = owner == sid;
+        const auto mutexName = std::wstring(L"Local\\BluetoothUnlockSession-") + sid;
+        LocalFree(sid);
+        if (!matches) return 1;
+        HANDLE singleton = CreateMutexW(nullptr, TRUE, mutexName.c_str());
+        if (!singleton || GetLastError() == ERROR_ALREADY_EXISTS)
+        { if (singleton) CloseHandle(singleton); return 2; }
+        SetConsoleCtrlHandler(StopOnConsoleEvent, TRUE);
+        ULONGLONG farSince = 0;
+        bool locked = false;
+        while (running)
+        {
+            const auto settings = LoadSettings();
+            std::map<std::string, std::string> status;
+            FILE* file = nullptr;
+            if (_wfopen_s(&file, (RuntimeDirectory() + L"\\status.txt").c_str(), L"rb") == 0)
+            {
+                char line[256];
+                while (fgets(line, sizeof(line), file))
+                {
+                    auto end = strchr(line, '\n'); if (end) *end = 0;
+                    auto separator = strchr(line, '=');
+                    if (separator) { *separator = 0; status[line] = separator + 1; }
+                }
+                fclose(file);
+            }
+            const auto now = GetTickCount64();
+            const auto tick = _strtoui64(status["snapshot_tick"].c_str(), nullptr, 10);
+            const bool fresh = tick && tick <= now && now - tick <= 15000 && status["service_monitor"] == "1";
+            if (fresh && settings.automaticLock && !settings.devices.empty() && status["outside_lock_range"] == "1")
+            {
+                if (!farSince) farSince = now;
+                if (!locked && now - farSince >= settings.lockDelaySeconds * 1000ULL)
+                    if (LockWorkStation()) { locked = true; LogEvent("automatic_lock"); }
+            }
+            else { farSince = 0; locked = false; }
+            Sleep(2000);
+        }
+        CloseHandle(singleton);
         return 0;
+    }
+
+    void WINAPI ServiceMain(DWORD, PWSTR*)
+    {
+        serviceHandle = RegisterServiceCtrlHandlerExW(L"BluetoothUnlockService", ServiceControl, nullptr);
+        if (!serviceHandle) return;
+        ReportServiceState(SERVICE_START_PENDING);
+        serviceMonitor = true;
+        const auto sid = ServiceAccountSid();
+        if (sid.empty() || DataDirectory().empty() || RuntimeDirectory().empty())
+        { ReportServiceState(SERVICE_STOPPED, ERROR_INVALID_DATA); return; }
+        ReportServiceState(SERVICE_RUNNING);
+        int result = 1;
+        try { result = RunMonitor(sid); }
+        catch (...) { result = 1; }
+        ReportServiceState(SERVICE_STOPPED, result ? ERROR_EXCEPTION_IN_SERVICE : NO_ERROR);
     }
 
     int RunCommand(int argc, wchar_t** argv)
@@ -425,6 +546,7 @@ namespace
         if (argc == 3 && wcscmp(argv[1], L"--startup") == 0)
         {
             if (wcscmp(argv[2], L"0") != 0 && wcscmp(argv[2], L"1") != 0) return 2;
+            if (!ServiceAccountSid().empty()) return 0; // The installed logon task owns session startup.
             HKEY key = nullptr;
             if (RegOpenKeyExW(HKEY_CURRENT_USER,
                 L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0,
@@ -438,7 +560,8 @@ namespace
                     RegCloseKey(key);
                     return 1;
                 }
-                const std::wstring command = L"\"" + std::wstring(executable) + L"\" --run";
+                const std::wstring command = L"\"" + std::wstring(executable) +
+                    (ServiceAccountSid().empty() ? L"\" --run" : L"\" --session");
                 result = RegSetValueExW(key, L"BluetoothUnlock", 0, REG_SZ,
                     reinterpret_cast<const BYTE*>(command.c_str()),
                     static_cast<DWORD>((command.size() + 1) * sizeof(wchar_t)));
@@ -539,6 +662,12 @@ namespace
 
 int wmain(int argc, wchar_t** argv)
 {
+    if (argc == 2 && wcscmp(argv[1], L"--service") == 0)
+    {
+        SERVICE_TABLE_ENTRYW table[] = {{const_cast<PWSTR>(L"BluetoothUnlockService"), ServiceMain}, {nullptr, nullptr}};
+        return StartServiceCtrlDispatcherW(table) ? 0 : 1;
+    }
+    if (argc == 2 && wcscmp(argv[1], L"--session") == 0) return RunSessionAgent();
     if (argc == 2 && wcscmp(argv[1], L"--list-paired-ble") == 0)
     {
         winrt::init_apartment();
@@ -547,6 +676,6 @@ int wmain(int argc, wchar_t** argv)
         return 0;
     }
     if (argc == 1 || (argc == 2 && wcscmp(argv[1], L"--run") == 0))
-        return RunMonitor();
+        return ServiceAccountSid().empty() ? RunMonitor() : RunSessionAgent();
     return RunCommand(argc, argv);
 }

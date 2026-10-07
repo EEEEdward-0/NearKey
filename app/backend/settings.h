@@ -38,3 +38,9 @@ bool ParseBluetoothAddress(const wchar_t* text, uint64_t& address);
 std::wstring FormatBluetoothAddress(uint64_t address);
 Settings LoadSettings();
 bool SaveSettings(const Settings& settings);
+
+// Empty until an administrator installs the service for the configured account.
+std::wstring ServiceAccountSid();
+
+// Service-owned snapshots are separate from user-editable configuration.
+std::wstring RuntimeDirectory();

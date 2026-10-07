@@ -3,13 +3,68 @@
 
 #include <windows.h>
 #include <cwchar>
+#include <sddl.h>
+
+std::wstring ServiceAccountSid()
+{
+    DWORD enabled = 0, bytes = sizeof(enabled);
+    if (RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\BluetoothUnlockApp", L"ServiceEnabled",
+        RRF_RT_REG_DWORD, nullptr, &enabled, &bytes) != ERROR_SUCCESS || enabled != 1) return {};
+    wchar_t sid[256] = {};
+    bytes = sizeof(sid);
+    if (RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\BluetoothUnlockApp", L"UserSid",
+        RRF_RT_REG_SZ, nullptr, sid, &bytes) != ERROR_SUCCESS) return {};
+    PSID parsed = nullptr;
+    if (!ConvertStringSidToSidW(sid, &parsed)) return {};
+    LocalFree(parsed);
+    return sid;
+}
 
 std::wstring DataDirectory()
 {
+    const auto configuredSid = ServiceAccountSid();
+    if (!configuredSid.empty())
+    {
+        HANDLE token = nullptr;
+        PSID expected = nullptr;
+        bool authorized = false;
+        if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token) &&
+            ConvertStringSidToSidW(configuredSid.c_str(), &expected))
+        {
+            DWORD bytes = 0;
+            GetTokenInformation(token, TokenUser, nullptr, 0, &bytes);
+            std::vector<BYTE> data(bytes);
+            if (bytes && GetTokenInformation(token, TokenUser, data.data(), bytes, &bytes))
+            {
+                const auto sid = reinterpret_cast<TOKEN_USER*>(data.data())->User.Sid;
+                authorized = EqualSid(sid, expected) || IsWellKnownSid(sid, WinLocalSystemSid);
+            }
+        }
+        if (token) CloseHandle(token);
+        LocalFree(expected);
+        if (authorized)
+        {
+            wchar_t shared[MAX_PATH] = {};
+            DWORD bytes = sizeof(shared);
+            if (RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\BluetoothUnlockApp", L"DataDirectory",
+                RRF_RT_REG_SZ, nullptr, shared, &bytes) == ERROR_SUCCESS && *shared) return shared;
+            return {};
+        }
+    }
     wchar_t localAppData[MAX_PATH] = {};
     if (!GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, MAX_PATH)) return {};
     std::wstring directory = std::wstring(localAppData) + L"\\BluetoothUnlock";
     CreateDirectoryW(directory.c_str(), nullptr);
+    return directory;
+}
+
+std::wstring RuntimeDirectory()
+{
+    if (ServiceAccountSid().empty()) return DataDirectory();
+    wchar_t directory[MAX_PATH] = {};
+    DWORD bytes = sizeof(directory);
+    if (RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\BluetoothUnlockApp", L"RuntimeDirectory",
+        RRF_RT_REG_SZ, nullptr, directory, &bytes) != ERROR_SUCCESS) return {};
     return directory;
 }
 

@@ -31,21 +31,53 @@ internal sealed class BackendClient
     private readonly string _dataDirectory = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BluetoothUnlock");
 
+    private readonly string _runtimeDirectory;
+
     public BackendClient()
     {
         var alongsideUi = Path.Combine(AppContext.BaseDirectory, "BluetoothBackend.exe");
         var development = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
             "..", "..", "..", "..", "backend", "x64", "Release", "BluetoothBackend.exe"));
+        using var serviceKey = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\BluetoothUnlockApp");
+        var ownSid = System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value;
+        var serviceInstalled = serviceKey?.GetValue("ServiceEnabled") is int enabled && enabled == 1;
+        if (serviceInstalled && (serviceKey?.GetValue("UserSid") as string) != ownSid)
+            throw new InvalidOperationException("此服务绑定了另一个 Windows 账户，请使用已配置的账户打开设置。");
+        if (serviceInstalled && serviceKey?.GetValue("DataDirectory") is string shared)
+            _dataDirectory = shared;
+        _runtimeDirectory = serviceInstalled && serviceKey?.GetValue("RuntimeDirectory") is string runtime
+            ? runtime : _dataDirectory;
         _executable = File.Exists(alongsideUi) ? alongsideUi : development;
         if (!File.Exists(_executable)) throw new FileNotFoundException("找不到蓝牙后台程序。", _executable);
     }
 
-    public bool IsRunning => Process.GetProcessesByName("BluetoothBackend").Length != 0;
+    public bool ServiceInstalled
+    {
+        get
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\BluetoothUnlockApp");
+            return key?.GetValue("ServiceEnabled") is int enabled && enabled == 1;
+        }
+    }
+
+    public bool IsRunning
+    {
+        get
+        {
+            if (!ServiceInstalled) return Process.GetProcessesByName("BluetoothBackend").Length != 0;
+            var status = ReadStatus();
+            return status.GetValueOrDefault("service_monitor", "0") == "1" &&
+                long.TryParse(status.GetValueOrDefault("snapshot_tick", "0"), out var tick) &&
+                tick > 0 && tick <= Environment.TickCount64 && Environment.TickCount64 - tick <= 15000;
+        }
+    }
 
     public void EnsureRunning()
     {
-        if (IsRunning) return;
-        Process.Start(new ProcessStartInfo(_executable, "--run")
+        using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\BluetoothUnlockApp");
+        var serviceInstalled = key?.GetValue("ServiceEnabled") is int enabled && enabled == 1;
+        if (!serviceInstalled && IsRunning) return;
+        Process.Start(new ProcessStartInfo(_executable, serviceInstalled ? "--session" : "--run")
         {
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -123,14 +155,14 @@ internal sealed class BackendClient
 
     public IReadOnlyList<DeviceRow> ReadDiscovered()
     {
-        var path = Path.Combine(_dataDirectory, "discovered.tsv");
+        var path = Path.Combine(_runtimeDirectory, "discovered.tsv");
         try
         {
             var selectedDevices = ReadSettings().Devices;
             var selectedNames = selectedDevices.ToDictionary(
                 device => device.Address, device => device.Name,
                 StringComparer.OrdinalIgnoreCase);
-            var pairedPath = Path.Combine(_dataDirectory, "paired.tsv");
+            var pairedPath = Path.Combine(_runtimeDirectory, "paired.tsv");
             var pairedNames = (File.Exists(pairedPath) ? File.ReadLines(pairedPath, Encoding.UTF8) : [])
                 .Select(line => line.Split('\t'))
                 .Where(parts => parts.Length == 2 && parts[0].Length == 12)
@@ -174,7 +206,7 @@ internal sealed class BackendClient
 
     public IReadOnlyDictionary<string, string> ReadStatus()
     {
-        var path = Path.Combine(_dataDirectory, "status.txt");
+        var path = Path.Combine(_runtimeDirectory, "status.txt");
         if (!File.Exists(path)) return new Dictionary<string, string>();
         try
         {
@@ -187,14 +219,20 @@ internal sealed class BackendClient
 
     public IReadOnlyList<string> ReadEvents()
     {
-        var path = Path.Combine(_dataDirectory, "events.log");
-        if (!File.Exists(path)) return [];
-        try { return File.ReadLines(path).TakeLast(30).Reverse().ToArray(); }
+        try
+        {
+            var paths = ServiceInstalled
+                ? new[] { Path.Combine(_runtimeDirectory, "events.log"), Path.Combine(_dataDirectory, "session-events.log") }
+                : new[] { Path.Combine(_runtimeDirectory, "events.log") };
+            return paths.Where(File.Exists).SelectMany(path => File.ReadLines(path).TakeLast(30))
+                .OrderByDescending(line => line, StringComparer.Ordinal).Take(30).ToArray();
+        }
         catch (IOException) { return []; }
     }
 
     public bool StartupEnabled()
     {
+        if (ServiceInstalled) return true;
         using var runKey = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");
         return runKey?.GetValue("BluetoothUnlock") is string;
     }

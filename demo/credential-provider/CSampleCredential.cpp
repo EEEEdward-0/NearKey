@@ -227,7 +227,7 @@ bool CSampleCredential::IsAvailableForUnlock() const
     const bool existingSession = IsExistingSessionForUser(_pszUserSid);
     RecordLoginFlow(L"LastExistingSession", existingSession ? 1 : 0);
     return (_cpus == CPUS_UNLOCK_WORKSTATION || _cpus == CPUS_LOGON) &&
-        existingSession;
+        IsSupportedLoginForUser(_pszUserSid);
 }
 
 // Similarly to SetSelected, LogonUI calls this when your tile was selected

@@ -141,7 +141,7 @@ HRESULT CSampleProvider::Advise(
                 L"SOFTWARE\\BluetoothUnlockDemo", L"UserSid", RRF_RT_REG_SZ,
                 nullptr, sid, &bytes) == ERROR_SUCCESS;
             DWORD unlockKey = VK_RETURN;
-            if (hasSid && IsExistingSessionForUser(sid))
+            if (hasSid && IsSupportedLoginForUser(sid))
                 IsUnlockConditionMet(sid, &unlockKey);
             DWORD keyCount = 0;
             DWORD countBytes = sizeof(keyCount);
@@ -162,7 +162,7 @@ HRESULT CSampleProvider::Advise(
                     RecordLoginFlow(L"LastUnlockKeyProbeTick", GetTickCount());
                     RecordLoginFlow(L"LastUnlockKeyProbeCount", ++keyCount);
                     DWORD liveKey = VK_RETURN;
-                    if (hasSid && IsExistingSessionForUser(sid) &&
+                    if (hasSid && IsSupportedLoginForUser(sid) &&
                         IsUnlockConditionMet(sid, &liveKey) && liveKey == unlockKey)
                     {
                         const ULONGLONG now = GetTickCount64();
@@ -180,7 +180,7 @@ HRESULT CSampleProvider::Advise(
                 if (++keySettingPolls < 30) continue;
                 keySettingPolls = 0;
                 DWORD refreshedKey = VK_RETURN;
-                if (hasSid && IsExistingSessionForUser(sid))
+                if (hasSid && IsSupportedLoginForUser(sid))
                     IsUnlockConditionMet(sid, &refreshedKey);
                 if (refreshedKey != unlockKey)
                 {
@@ -340,8 +340,19 @@ HRESULT CSampleProvider::_EnumerateCredentials()
         _pCredProviderUserArray->GetCount(&dwUserCount);
         if (dwUserCount > 0)
         {
-            ICredentialProviderUser *pCredUser;
-            hr = _pCredProviderUserArray->GetAt(0, &pCredUser);
+            ICredentialProviderUser *pCredUser = nullptr;
+            // Bind the credential to the configured account, not the first array entry.
+            hr = HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+            for (DWORD index = 0; index < dwUserCount; ++index)
+            {
+                ICredentialProviderUser* candidate = nullptr;
+                if (FAILED(_pCredProviderUserArray->GetAt(index, &candidate))) continue;
+                PWSTR sid = nullptr;
+                const bool matches = SUCCEEDED(candidate->GetSid(&sid)) && IsSupportedLoginForUser(sid);
+                CoTaskMemFree(sid);
+                if (matches) { pCredUser = candidate; hr = S_OK; break; }
+                candidate->Release();
+            }
             if (SUCCEEDED(hr))
             {
                 _pCredential = new(std::nothrow) CSampleCredential();

@@ -141,7 +141,8 @@ public partial class MainWindow : Window
         .Replace("monitor_stopped", "后台已停止")
         .Replace("unlock_range_entered", "进入解锁范围")
         .Replace("unlock_range_left", "离开解锁范围")
-        .Replace("automatic_lock", "已自动锁定");
+        .Replace("automatic_lock", "已自动锁定")
+        .Replace("lan_ip_recovered", "已按 Wi-Fi MAC 找回当前 IP");
 
     private async void OnAddDevice(object sender, RoutedEventArgs e)
     {
@@ -213,20 +214,60 @@ public partial class MainWindow : Window
             HintText.Text = "每台设备需填写完整的 IPv4 和 Wi-Fi MAC；第二台可留空。";
             return;
         }
-        if (ip2.Length > 0 && (ip == ip2 || mac == mac2))
+        if (ip2.Length > 0 && mac == mac2)
         {
-            HintText.Text = "两台设备的 IP 和 Wi-Fi MAC 不能重复。";
+            HintText.Text = "两台设备的 Wi-Fi MAC 不能重复。";
             return;
         }
+        var saveButton = sender as System.Windows.Controls.Button;
+        if (saveButton != null) saveButton.IsEnabled = false;
+        LanFields.IsEnabled = false;
         try
         {
+            HintText.Text = "正在校验每台设备的 IP/MAC，请保持手机亮屏并连接同一 Wi-Fi…";
+            var verifiedIp = ip.Length == 0 ? "" : await VerifyLanAddress(ip, mac, 1);
+            var verifiedIp2 = ip2.Length == 0 ? "" : await VerifyLanAddress(ip2, mac2, 2);
+            if (verifiedIp == null || verifiedIp2 == null) return;
+            LanIpBox.Text = verifiedIp;
+            LanIpBox2.Text = verifiedIp2;
+            if (verifiedIp2.Length > 0 && verifiedIp == verifiedIp2)
+                throw new InvalidOperationException("校验后的两台设备 IP 重复，设置未保存。");
+            if ((verifiedIp != ip || verifiedIp2 != ip2) &&
+                System.Windows.MessageBox.Show(this,
+                    $"IP 已修正：\n设备 1：{ip} → {verifiedIp}\n设备 2：{ip2} → {verifiedIp2}\n确认使用修正后的地址并保存？",
+                    "确认 IP 修正", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+            {
+                HintText.Text = "已填入修正地址，尚未保存。";
+                return;
+            }
             await _backend.RunCommandAsync("--configure-v4", unlock.ToString(), lockAt.ToString(),
                 delay, AutoLockCheck.IsChecked == true ? "1" : "0",
-                AutoUnlockCheck.IsChecked == true ? "1" : "0", mode.ToString(), ip, mac, unlockKey, ip2, mac2);
+                AutoUnlockCheck.IsChecked == true ? "1" : "0", mode.ToString(), verifiedIp, mac, unlockKey, verifiedIp2, mac2);
             await _backend.RunCommandAsync("--startup", StartupCheck.IsChecked == true ? "1" : "0");
             HintText.Text = "设置已保存，后台会自动读取新规则。";
         }
         catch (Exception error) { ShowError(error); }
+        finally
+        {
+            LanFields.IsEnabled = true;
+            if (saveButton != null) saveButton.IsEnabled = true;
+        }
+    }
+
+    private async Task<string?> VerifyLanAddress(string ip, string mac, int number)
+    {
+        try
+        {
+            var result = (await _backend.RunCommandAsync("--resolve-lan", ip, mac)).Trim().Split('\t');
+            if (result.Length != 2 || !result[1].Equals(mac, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("校验结果不匹配。");
+            return result[0];
+        }
+        catch (Exception)
+        {
+            HintText.Text = $"设备 {number} 未响应或 IP/MAC 不匹配，未保存。请唤醒手机，核对 Wi-Fi MAC 后重试。";
+            return null;
+        }
     }
 
     private async void OnResolveLan(object sender, RoutedEventArgs e)
@@ -251,6 +292,13 @@ public partial class MainWindow : Window
         {
             var result = (await _backend.RunCommandAsync("--resolve-lan", ip, mac)).Trim().Split('\t');
             if (result.Length != 2) throw new InvalidOperationException("无法读取识别结果。");
+            if (mac.Length == 0 && System.Windows.MessageBox.Show(this,
+                $"该 IP 对应的设备信息：\nIP：{result[0]}\nWi-Fi MAC：{result[1]}\n请与手机当前 Wi-Fi 详情核对。确认这是你的手机吗？",
+                "确认设备身份", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+            {
+                HintText.Text = "尚未确认设备身份，未填入补全结果。";
+                return;
+            }
             ipBox.Text = result[0];
             macBox.Text = result[1];
             HintText.Text = "已补全。请确认设备信息，然后点击保存设置。";

@@ -1,3 +1,4 @@
+#include <future>
 #include <windows.h>
 #include <sddl.h>
 #include <winrt/Windows.Foundation.h>
@@ -213,6 +214,10 @@ namespace
         bool lanPresent = false;
         std::vector<Settings::LanDevice> probedLanDevices;
         int lanOnline = 0;
+        std::vector<Settings::LanDevice> runtimeLanDevices;
+        std::vector<Settings::LanDevice> recoveryConfig;
+        std::future<std::vector<Settings::LanDevice>> lanRecovery;
+        ULONGLONG lastLanRecovery = 0;
         while (running)
         {
             const ULONGLONG now = GetTickCount64();
@@ -247,6 +252,22 @@ namespace
                 }
             }
             const Decision decision = EvaluateProximity(settings, observations, now);
+            if (settings.lanDevices != probedLanDevices)
+            {
+                runtimeLanDevices = settings.lanDevices;
+                lastLanRecovery = 0;
+            }
+            if (lanRecovery.valid() && lanRecovery.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+            {
+                const auto recovered = lanRecovery.get();
+                // Ignore discoveries made for a configuration the user has since changed.
+                if (settings.unlockMode != 0 && settings.lanDevices == recoveryConfig)
+                {
+                    if (runtimeLanDevices != recovered) LogEvent("lan_ip_recovered");
+                    runtimeLanDevices = recovered;
+                    lastLanProbe = 0;
+                }
+            }
             if (settings.unlockMode == 0)
             {
                 lanPresent = false;
@@ -257,11 +278,25 @@ namespace
                 settings.lanDevices != probedLanDevices)
             {
                 lanOnline = 0;
-                for (const auto& device : settings.lanDevices)
+                for (const auto& device : runtimeLanDevices)
                     if (ProbeLanDevice(device.ipv4, device.mac)) ++lanOnline;
                 lanPresent = AllLanDevicesOnline(static_cast<int>(settings.lanDevices.size()), lanOnline);
                 lastLanProbe = now;
                 probedLanDevices = settings.lanDevices;
+                if (!lanPresent && !lanRecovery.valid() &&
+                    (!lastLanRecovery || now - lastLanRecovery >= 60000))
+                {
+                    lastLanRecovery = now;
+                    recoveryConfig = settings.lanDevices;
+                    // Discovery can take seconds. Keep publishing the offline state while it runs.
+                    lanRecovery = std::async(std::launch::async, [devices = runtimeLanDevices]() mutable
+                    {
+                        for (auto& device : devices)
+                            if (device.mac && !ProbeLanDevice(device.ipv4, device.mac))
+                                ResolveLanDevice(device.ipv4, device.mac);
+                        return devices;
+                    });
+                }
             }
             const bool withinUnlockRange = settings.automaticUnlock &&
                 UnlockConditionMet(settings.unlockMode, decision.unlock, lanPresent);

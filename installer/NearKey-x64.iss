@@ -43,3 +43,4 @@ Filename: "{app}\ui\{#MyAppExeName}"; Description: "启动 NearKey 设置"; Flag
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\uninstall-app.ps1"""; RunOnceId: "NearKeyUninstall"
 
 
+

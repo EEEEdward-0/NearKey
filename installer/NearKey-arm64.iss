@@ -9,14 +9,14 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\NearKey
-DefaultGroupName=NearKey / 近钥
+DefaultGroupName=NearKey - 近钥
 OutputDir=..\release
 OutputBaseFilename=NearKey-Setup-arm64
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=ARM64
 PrivilegesRequired=admin
-UninstallDisplayName=NearKey / 近钥
+UninstallDisplayName=NearKey - 近钥
 
 [Files]
 Source: "..\app\backend\ARM64\Release\BluetoothBackend.exe"; DestDir: "{app}\backend"; Flags: ignoreversion
@@ -27,8 +27,8 @@ Source: "..\app\install-app.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\app\uninstall-app.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\NearKey / 近钥"; Filename: "{app}\ui\{#MyAppExeName}"
-Name: "{autodesktop}\NearKey / 近钥"; Filename: "{app}\ui\{#MyAppExeName}"
+Name: "{group}\NearKey - 近钥"; Filename: "{app}\ui\{#MyAppExeName}"
+Name: "{autodesktop}\NearKey - 近钥"; Filename: "{app}\ui\{#MyAppExeName}"
 
 [Run]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install-app.ps1"""; StatusMsg: "正在安装 NearKey 后台服务..."; Flags: runhidden waituntilterminated
@@ -36,6 +36,7 @@ Filename: "{app}\ui\{#MyAppExeName}"; Description: "启动 NearKey 设置"; Flag
 
 [UninstallRun]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\uninstall-app.ps1"""; RunOnceId: "NearKeyUninstall"
+
 
 
 

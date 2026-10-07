@@ -17,7 +17,6 @@ SolidCompression=yes
 ArchitecturesInstallIn64BitMode=ARM64
 PrivilegesRequired=admin
 RestartIfNeededByRun=no
-DisableRestartPrompt=yes
 CloseApplications=yes
 RestartApplications=no
 UninstallDisplayName=NearKey - 近钥
@@ -41,6 +40,7 @@ Filename: "{app}\ui\{#MyAppExeName}"; Description: "启动 NearKey 设置"; Flag
 
 [UninstallRun]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\uninstall-app.ps1"""; RunOnceId: "NearKeyUninstall"
+
 
 
 

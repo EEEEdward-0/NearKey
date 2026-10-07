@@ -5,6 +5,16 @@ $principal = [Security.Principal.WindowsPrincipal]::new($identity)
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw '请使用管理员权限运行安装脚本。'
 }
+function Copy-AppFile([string]$sourcePath, [string]$destinationPath) {
+    # Windows may retain an executable mapping briefly after process termination.
+    for ($attempt = 0; $attempt -lt 10; $attempt++) {
+        try { Copy-Item -LiteralPath $sourcePath -Destination $destinationPath -Force; return }
+        catch {
+            if ($attempt -eq 9) { throw }
+            Start-Sleep -Milliseconds 500
+        }
+    }
+}
 $root = Split-Path $PSScriptRoot -Parent
 $backend = Join-Path $PSScriptRoot 'backend\x64\Release\BluetoothBackend.exe'
 $uiDirectory = Join-Path $PSScriptRoot 'frontend\bin\publish'
@@ -51,7 +61,7 @@ Get-CimInstance Win32_Process -Filter "Name = 'BluetoothBackend.exe'" |
         Stop-Process -Id $_.ProcessId -Force
         Wait-Process -Id $_.ProcessId -Timeout 10 -ErrorAction SilentlyContinue
     }
-Copy-Item -LiteralPath $backend -Destination $installedBackend -Force
+Copy-AppFile $backend $installedBackend
 Get-CimInstance Win32_Process -Filter "Name = 'BluetoothUnlock.UI.exe'" |
     Where-Object { $_.ExecutablePath -eq (Join-Path $destination 'BluetoothUnlock.UI.exe') } |
     ForEach-Object {
@@ -60,7 +70,7 @@ Get-CimInstance Win32_Process -Filter "Name = 'BluetoothUnlock.UI.exe'" |
     }
 foreach ($name in @('BluetoothUnlock.UI.exe', 'BluetoothUnlock.UI.dll',
                     'BluetoothUnlock.UI.deps.json', 'BluetoothUnlock.UI.runtimeconfig.json')) {
-    Copy-Item -LiteralPath (Join-Path $uiDirectory $name) -Destination (Join-Path $destination $name) -Force
+    Copy-AppFile (Join-Path $uiDirectory $name) (Join-Path $destination $name)
 }
 $shortcutPath = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\蓝牙靠近解锁.lnk'
 $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)

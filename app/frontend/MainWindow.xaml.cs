@@ -231,7 +231,7 @@ public partial class MainWindow : Window
             return;
         }
         ResolveLanButton.IsEnabled = false;
-        HintText.Text = "正在查询局域网设备，请保持手机 Wi-Fi 开启…";
+        HintText.Text = "正在探测同网段设备，约需 20 秒；请保持手机 Wi-Fi 开启…";
         try
         {
             var result = (await _backend.RunCommandAsync("--resolve-lan", ip, mac)).Trim().Split('\t');

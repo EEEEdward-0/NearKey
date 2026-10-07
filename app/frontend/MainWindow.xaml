@@ -210,7 +210,7 @@
                                 <RadioButton x:Name="BothMode" Content="蓝牙靠近，并且局域网设备在线" GroupName="Mode" Checked="OnModeChanged" />
                                 <StackPanel x:Name="LanFields" Margin="0,16,0,0" Visibility="Collapsed">
                                     <TextBlock Text="局域网设备信息" FontWeight="SemiBold" />
-                                    <TextBlock Text="填写一项后点击自动补全：已有 Wi-Fi MAC 可查找当前 IP；已有 IP 可读取对应 MAC。首次使用可在手机当前 Wi-Fi 网络详情中找到这两项。" Style="{StaticResource Help}" />
+                                    <TextBlock Text="填写 Wi-Fi MAC 后，自动探测同网段并查找手机当前 IP；只填写 IP 时，可读取对应 MAC。首次使用可在手机当前 Wi-Fi 网络详情中找到这两项。" Style="{StaticResource Help}" />
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />

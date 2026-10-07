@@ -8,5 +8,7 @@
 bool ProbeLanDevice(const std::wstring& ipv4, uint64_t expectedMac);
 bool IsValidLanIpv4(const std::wstring& ipv4);
 
-// Resolve a known Wi-Fi MAC to its current IPv4, or read the MAC at a supplied IPv4.
+// Resolve a known Wi-Fi MAC via cache, then bounded on-link ARP discovery;
+// with only IPv4 supplied, read its MAC directly.
 bool ResolveLanDevice(std::wstring& ipv4, uint64_t& mac);
+bool DiscoverLanDevice(uint64_t mac, std::wstring& ipv4);

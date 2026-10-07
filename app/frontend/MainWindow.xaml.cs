@@ -81,8 +81,10 @@ public partial class MainWindow : Window
             BluetoothMode.IsChecked = settings.UnlockMode == 0;
             LanMode.IsChecked = settings.UnlockMode == 1;
             BothMode.IsChecked = settings.UnlockMode == 2;
-            LanIpBox.Text = settings.LanIp;
-            LanMacBox.Text = settings.LanMac;
+            LanIpBox.Text = settings.LanDevices.ElementAtOrDefault(0)?.Ip ?? "";
+            LanMacBox.Text = settings.LanDevices.ElementAtOrDefault(0)?.Mac ?? "";
+            LanIpBox2.Text = settings.LanDevices.ElementAtOrDefault(1)?.Ip ?? "";
+            LanMacBox2.Text = settings.LanDevices.ElementAtOrDefault(1)?.Mac ?? "";
             StartupCheck.IsChecked = _backend.StartupEnabled();
             DelayBox.SelectedItem = DelayBox.Items.OfType<ComboBoxItem>()
                 .FirstOrDefault(item => item.Tag?.ToString() == settings.LockDelaySeconds.ToString())
@@ -127,7 +129,8 @@ public partial class MainWindow : Window
             LanStateText.Text = status.GetValueOrDefault("mode", "0") == "0"
                 ? "局域网：当前模式未启用"
                 : status.GetValueOrDefault("lan_present", "0") == "1"
-                    ? "局域网：已找到匹配设备" : "局域网：未找到匹配设备";
+                    ? $"局域网：在线 {status.GetValueOrDefault("lan_online", "0")} / {status.GetValueOrDefault("lan_selected", "0")} 台，全部通过"
+                    : $"局域网：在线 {status.GetValueOrDefault("lan_online", "0")} / {status.GetValueOrDefault("lan_selected", "0")} 台，尚未全部通过";
             EventList.ItemsSource = _backend.ReadEvents().Select(TranslateEvent).ToArray();
         }
         catch (Exception error) { HintText.Text = $"读取状态失败：{error.Message}"; }
@@ -199,19 +202,27 @@ public partial class MainWindow : Window
         var unlockKey = keyText.Length == 1 ? ((int)keyText[0]).ToString() : "13";
         var ip = LanIpBox.Text.Trim();
         var mac = LanMacBox.Text.Trim().Replace(":", "").Replace("-", "").ToUpperInvariant();
-        if ((ip.Length > 0 && (!IPAddress.TryParse(ip, out var address) ||
-                               address.AddressFamily != AddressFamily.InterNetwork)) ||
-            (mac.Length > 0 && (mac.Length != 12 || !mac.All(Uri.IsHexDigit))) ||
-            (mode != 0 && (ip.Length == 0 || mac.Length != 12)))
+        var ip2 = LanIpBox2.Text.Trim();
+        var mac2 = LanMacBox2.Text.Trim().Replace(":", "").Replace("-", "").ToUpperInvariant();
+        bool Complete(string addressText, string macText) =>
+            IPAddress.TryParse(addressText, out var address) && address.AddressFamily == AddressFamily.InterNetwork &&
+            macText.Length == 12 && macText.All(Uri.IsHexDigit) && macText != "000000000000";
+        if (((mode != 0 || ip.Length > 0 || mac.Length > 0) && !Complete(ip, mac)) ||
+            ((ip2.Length > 0 || mac2.Length > 0) && (!Complete(ip2, mac2) || !Complete(ip, mac))))
         {
-            HintText.Text = "局域网模式需要有效的 IPv4 地址和 12 位 Wi‑Fi MAC。";
+            HintText.Text = "每台设备需填写完整的 IPv4 和 Wi-Fi MAC；第二台可留空。";
+            return;
+        }
+        if (ip2.Length > 0 && (ip == ip2 || mac == mac2))
+        {
+            HintText.Text = "两台设备的 IP 和 Wi-Fi MAC 不能重复。";
             return;
         }
         try
         {
-            await _backend.RunCommandAsync("--configure-v3", unlock.ToString(), lockAt.ToString(),
+            await _backend.RunCommandAsync("--configure-v4", unlock.ToString(), lockAt.ToString(),
                 delay, AutoLockCheck.IsChecked == true ? "1" : "0",
-                AutoUnlockCheck.IsChecked == true ? "1" : "0", mode.ToString(), ip, mac, unlockKey);
+                AutoUnlockCheck.IsChecked == true ? "1" : "0", mode.ToString(), ip, mac, unlockKey, ip2, mac2);
             await _backend.RunCommandAsync("--startup", StartupCheck.IsChecked == true ? "1" : "0");
             HintText.Text = "设置已保存，后台会自动读取新规则。";
         }
@@ -220,8 +231,12 @@ public partial class MainWindow : Window
 
     private async void OnResolveLan(object sender, RoutedEventArgs e)
     {
-        var ip = LanIpBox.Text.Trim();
-        var mac = LanMacBox.Text.Trim().Replace(":", "").Replace("-", "").ToUpperInvariant();
+        var second = ReferenceEquals(sender, ResolveLanButton2);
+        var ipBox = second ? LanIpBox2 : LanIpBox;
+        var macBox = second ? LanMacBox2 : LanMacBox;
+        var button = second ? ResolveLanButton2 : ResolveLanButton;
+        var ip = ipBox.Text.Trim();
+        var mac = macBox.Text.Trim().Replace(":", "").Replace("-", "").ToUpperInvariant();
         if ((ip.Length == 0 && mac.Length == 0) ||
             (ip.Length > 0 && (!IPAddress.TryParse(ip, out var address) ||
                 address.AddressFamily != AddressFamily.InterNetwork)) ||
@@ -230,21 +245,21 @@ public partial class MainWindow : Window
             HintText.Text = "请先填写有效的 IPv4 地址或 12 位 Wi-Fi MAC 地址。";
             return;
         }
-        ResolveLanButton.IsEnabled = false;
+        button.IsEnabled = false;
         HintText.Text = "正在探测同网段设备，约需 20 秒；请保持手机 Wi-Fi 开启…";
         try
         {
             var result = (await _backend.RunCommandAsync("--resolve-lan", ip, mac)).Trim().Split('\t');
             if (result.Length != 2) throw new InvalidOperationException("无法读取识别结果。");
-            LanIpBox.Text = result[0];
-            LanMacBox.Text = result[1];
+            ipBox.Text = result[0];
+            macBox.Text = result[1];
             HintText.Text = "已补全。请确认设备信息，然后点击保存设置。";
         }
         catch (Exception)
         {
             HintText.Text = "未找到匹配设备。请将手机连接到同一 Wi-Fi 并唤醒，再重试；也可手动填写。";
         }
-        finally { ResolveLanButton.IsEnabled = true; }
+        finally { button.IsEnabled = true; }
     }
 
     private async void OnManualLock(object sender, RoutedEventArgs e)

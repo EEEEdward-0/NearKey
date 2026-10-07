@@ -22,8 +22,13 @@ struct Settings
     int unlockKey = 13;
     // 0: Bluetooth, 1: LAN, 2: both.
     int unlockMode = 0;
-    std::wstring lanIp;
-    uint64_t lanMac = 0;
+    struct LanDevice
+    {
+        std::wstring ipv4;
+        uint64_t mac = 0;
+        bool operator==(const LanDevice& other) const { return ipv4 == other.ipv4 && mac == other.mac; }
+    };
+    std::vector<LanDevice> lanDevices;
 };
 
 std::wstring DataDirectory();

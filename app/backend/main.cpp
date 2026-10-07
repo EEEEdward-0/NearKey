@@ -211,8 +211,8 @@ namespace
         ULONGLONG lastPairedRefresh = 0;
         ULONGLONG lastLanProbe = 0;
         bool lanPresent = false;
-        std::wstring probedLanIp;
-        uint64_t probedLanMac = 0;
+        std::vector<Settings::LanDevice> probedLanDevices;
+        int lanOnline = 0;
         while (running)
         {
             const ULONGLONG now = GetTickCount64();
@@ -250,15 +250,18 @@ namespace
             if (settings.unlockMode == 0)
             {
                 lanPresent = false;
+                lanOnline = 0;
                 lastLanProbe = 0;
             }
             else if (!lastLanProbe || now - lastLanProbe >= 10000 ||
-                settings.lanIp != probedLanIp || settings.lanMac != probedLanMac)
+                settings.lanDevices != probedLanDevices)
             {
-                lanPresent = ProbeLanDevice(settings.lanIp, settings.lanMac);
+                lanOnline = 0;
+                for (const auto& device : settings.lanDevices)
+                    if (ProbeLanDevice(device.ipv4, device.mac)) ++lanOnline;
+                lanPresent = AllLanDevicesOnline(static_cast<int>(settings.lanDevices.size()), lanOnline);
                 lastLanProbe = now;
-                probedLanIp = settings.lanIp;
-                probedLanMac = settings.lanMac;
+                probedLanDevices = settings.lanDevices;
             }
             const bool withinUnlockRange = settings.automaticUnlock &&
                 UnlockConditionMet(settings.unlockMode, decision.unlock, lanPresent);
@@ -302,12 +305,12 @@ namespace
                 sprintf_s(status,
                     "running=1\nselected=%zu\ndetected=%d\nmean=%d\nnear=%d\n"
                     "automatic_lock=%d\nlast_signal_tick=%llu\nmode=%d\nbluetooth_near=%d\nlan_present=%d\n"
-                    "unlock_threshold=%d\nlock_threshold=%d\n",
+                    "unlock_threshold=%d\nlock_threshold=%d\nlan_online=%d\nlan_selected=%zu\n",
                     settings.devices.size(), decision.detected, decision.meanRssi,
                     withinUnlockRange ? 1 : 0, settings.automaticLock ? 1 : 0,
                     static_cast<unsigned long long>(decision.newestTick),
                     settings.unlockMode, decision.unlock ? 1 : 0, lanPresent ? 1 : 0,
-                    settings.unlockThreshold, settings.lockThreshold);
+                    settings.unlockThreshold, settings.lockThreshold, lanOnline, settings.lanDevices.size());
                 WriteText(DataDirectory() + L"\\status.txt", status);
                 std::string list;
                 std::sort(discovered.begin(), discovered.end(), [](const auto& left, const auto& right)
@@ -391,7 +394,8 @@ namespace
         Settings settings = LoadSettings();
         if ((argc == 7 && wcscmp(argv[1], L"--configure") == 0) ||
             (argc == 10 && wcscmp(argv[1], L"--configure-v2") == 0) ||
-            (argc == 11 && wcscmp(argv[1], L"--configure-v3") == 0))
+            (argc == 11 && wcscmp(argv[1], L"--configure-v3") == 0) ||
+            (argc == 13 && wcscmp(argv[1], L"--configure-v4") == 0))
         {
             long values[5];
             for (int i = 0; i < 5; ++i)
@@ -413,14 +417,29 @@ namespace
                 const long mode = wcstol(argv[7], &end, 10);
                 if (!end || *end || mode < 0 || mode > 2) return 2;
                 settings.unlockMode = static_cast<int>(mode);
-                settings.lanIp = argv[8];
-                if (!settings.lanIp.empty() && !IsValidLanIpv4(settings.lanIp)) return 2;
-                if (*argv[9] && !ParseBluetoothAddress(argv[9], settings.lanMac)) return 2;
-                if (!*argv[9]) settings.lanMac = 0;
-                if (settings.unlockMode != 0 &&
-                    (!IsValidLanIpv4(settings.lanIp) || settings.lanMac == 0)) return 2;
+                Settings::LanDevice device{argv[8], 0};
+                if (*argv[9] && !ParseBluetoothAddress(argv[9], device.mac)) return 2;
+                if (!device.ipv4.empty() || device.mac)
+                {
+                    if (!IsValidLanIpv4(device.ipv4) || device.mac == 0) return 2;
+                    if (settings.lanDevices.empty()) settings.lanDevices.push_back(device);
+                    else settings.lanDevices[0] = device;
+                }
+                else settings.lanDevices.clear();
+                if (argc == 13)
+                {
+                    settings.lanDevices.resize(settings.lanDevices.empty() ? 0 : 1);
+                    if (*argv[11] || *argv[12])
+                    {
+                        Settings::LanDevice second{argv[11], 0};
+                        if (settings.lanDevices.empty() || !IsValidLanIpv4(second.ipv4) ||
+                            !ParseBluetoothAddress(argv[12], second.mac) || second.mac == 0) return 2;
+                        settings.lanDevices.push_back(second);
+                    }
+                }
+                if (settings.unlockMode != 0 && settings.lanDevices.empty()) return 2;
             }
-            if (argc == 11)
+            if (argc >= 11)
             {
                 wchar_t* end = nullptr;
                 const long key = wcstol(argv[10], &end, 10);

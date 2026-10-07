@@ -33,3 +33,8 @@ bool UnlockConditionMet(int mode, bool bluetoothNear, bool lanPresent)
     if (mode == 1) return lanPresent;
     return mode == 2 && bluetoothNear && lanPresent;
 }
+
+bool AllLanDevicesOnline(int configured, int online)
+{
+    return configured > 0 && online == configured;
+}

@@ -18,9 +18,11 @@ internal sealed record DeviceRow(string Address, string Name, int Rssi, int AgeS
     public string IdentityText => IsSelected ? "已选择" : IsPaired ? "Windows 已配对" : "身份未确认";
 }
 
+internal sealed record LanDeviceRow(string Ip, string Mac);
+
 internal sealed record BackendSettings(int UnlockThreshold, int LockThreshold,
     int LockDelaySeconds, bool AutomaticLock, bool AutomaticUnlock, int UnlockKey, int UnlockMode,
-    string LanIp, string LanMac,
+    IReadOnlyList<LanDeviceRow> LanDevices,
     IReadOnlyList<DeviceRow> Devices);
 
 internal sealed class BackendClient
@@ -97,6 +99,15 @@ internal sealed class BackendClient
                 devices.Add(new DeviceRow(address, ReadIni("Devices", $"Name{index}", "设备"), 0,
                     IsSelected: true));
         }
+        var lanDevices = new List<LanDeviceRow>();
+        var lanCount = ReadInt("LAN", "Count", -1);
+        for (var index = 0; index < (lanCount < 0 ? 1 : Math.Min(lanCount, 2)); index++)
+        {
+            var ip = ReadIni("LAN", lanCount < 0 ? "IPv4" : $"IPv4{index}", "");
+            var mac = ReadIni("LAN", lanCount < 0 ? "Mac" : $"Mac{index}", "");
+            if (lanCount >= 0 || ip.Length > 0 || mac.Length > 0)
+                lanDevices.Add(new LanDeviceRow(ip, mac));
+        }
         return new BackendSettings(ReadInt("Signal", "UnlockThreshold", -65),
             ReadInt("Signal", "LockThreshold", -80),
             ReadInt("Signal", "LockDelaySeconds", 60),
@@ -104,7 +115,7 @@ internal sealed class BackendClient
             ReadInt("Behavior", "AutomaticUnlock", 1) != 0,
             unlockKey,
             Math.Clamp(ReadInt("Behavior", "UnlockMode", 0), 0, 2),
-            ReadIni("LAN", "IPv4", ""), ReadIni("LAN", "Mac", ""), devices);
+            lanDevices, devices);
     }
 
     public IReadOnlyList<DeviceRow> ReadDiscovered()

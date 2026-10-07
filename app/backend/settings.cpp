@@ -1,4 +1,5 @@
 #include "settings.h"
+#include "lan.h"
 
 #include <windows.h>
 #include <cwchar>
@@ -54,11 +55,24 @@ Settings LoadSettings()
         settings.unlockKey = 13;
     settings.unlockMode = GetPrivateProfileIntW(L"Behavior", L"UnlockMode", 0, path.c_str());
     if (settings.unlockMode < 0 || settings.unlockMode > 2) settings.unlockMode = 0;
-    wchar_t lanIp[64] = {}, lanMac[64] = {};
-    GetPrivateProfileStringW(L"LAN", L"IPv4", L"", lanIp, 64, path.c_str());
-    GetPrivateProfileStringW(L"LAN", L"Mac", L"", lanMac, 64, path.c_str());
-    settings.lanIp = lanIp;
-    ParseBluetoothAddress(lanMac, settings.lanMac);
+    const int lanCount = GetPrivateProfileIntW(L"LAN", L"Count", -1, path.c_str());
+    // A missing Count identifies the original single-device configuration.
+    for (int i = 0; i < (lanCount < 0 ? 1 : (lanCount > 2 ? 2 : lanCount)); ++i)
+    {
+        wchar_t ip[64] = {}, mac[64] = {}, ipKey[32], macKey[32];
+        if (lanCount < 0) { wcscpy_s(ipKey, L"IPv4"); wcscpy_s(macKey, L"Mac"); }
+        else { swprintf_s(ipKey, L"IPv4%d", i); swprintf_s(macKey, L"Mac%d", i); }
+        GetPrivateProfileStringW(L"LAN", ipKey, L"", ip, 64, path.c_str());
+        GetPrivateProfileStringW(L"LAN", macKey, L"", mac, 64, path.c_str());
+        uint64_t address = 0;
+        ParseBluetoothAddress(mac, address);
+        if (lanCount >= 0 || *ip || *mac) settings.lanDevices.push_back({ip, address});
+    }
+    // Invalid counts or duplicate identities must not weaken the all-device requirement.
+    if (lanCount > 2 || (settings.lanDevices.size() == 2 &&
+        (settings.lanDevices[0].mac == settings.lanDevices[1].mac ||
+         settings.lanDevices[0].ipv4 == settings.lanDevices[1].ipv4)))
+        settings.lanDevices = {{L"", 0}};
     if (settings.unlockThreshold < -100 || settings.unlockThreshold > -20) settings.unlockThreshold = -65;
     if (settings.lockThreshold < -100 || settings.lockThreshold > settings.unlockThreshold)
         settings.lockThreshold = settings.unlockThreshold < -80 ? settings.unlockThreshold : -80;
@@ -88,6 +102,12 @@ bool SaveSettings(const Settings& settings)
         (settings.unlockKey != 13 && (settings.unlockKey < 'A' || settings.unlockKey > 'Z')))
         return false;
     if (settings.unlockMode < 0 || settings.unlockMode > 2) return false;
+    if (settings.lanDevices.size() > 2 || (settings.unlockMode != 0 && settings.lanDevices.empty())) return false;
+    for (const auto& device : settings.lanDevices)
+        if (!IsValidLanIpv4(device.ipv4) || device.mac == 0) return false;
+    if (settings.lanDevices.size() == 2 &&
+        (settings.lanDevices[0].mac == settings.lanDevices[1].mac ||
+         settings.lanDevices[0].ipv4 == settings.lanDevices[1].ipv4)) return false;
     const std::wstring path = SettingsPath();
     wchar_t number[32];
     auto writeNumber = [&](const wchar_t* section, const wchar_t* key, int value)
@@ -104,10 +124,17 @@ bool SaveSettings(const Settings& settings)
         !writeNumber(L"Behavior", L"UnlockMode", settings.unlockMode) ||
         !writeNumber(L"Devices", L"Count", static_cast<int>(settings.devices.size())))
         return false;
-    if (!WritePrivateProfileStringW(L"LAN", L"IPv4", settings.lanIp.c_str(), path.c_str()) ||
-        !WritePrivateProfileStringW(L"LAN", L"Mac",
-            settings.lanMac ? FormatBluetoothAddress(settings.lanMac).c_str() : L"", path.c_str()))
-        return false;
+    if (!writeNumber(L"LAN", L"Count", static_cast<int>(settings.lanDevices.size()))) return false;
+    for (size_t i = 0; i < 2; ++i)
+    {
+        wchar_t ipKey[32], macKey[32];
+        swprintf_s(ipKey, L"IPv4%zu", i); swprintf_s(macKey, L"Mac%zu", i);
+        const bool exists = i < settings.lanDevices.size();
+        if (!WritePrivateProfileStringW(L"LAN", ipKey, exists ? settings.lanDevices[i].ipv4.c_str() : nullptr, path.c_str()) ||
+            !WritePrivateProfileStringW(L"LAN", macKey, exists ? FormatBluetoothAddress(settings.lanDevices[i].mac).c_str() : nullptr, path.c_str())) return false;
+    }
+    WritePrivateProfileStringW(L"LAN", L"IPv4", nullptr, path.c_str());
+    WritePrivateProfileStringW(L"LAN", L"Mac", nullptr, path.c_str());
     for (size_t i = 0; i < settings.devices.size(); ++i)
     {
         wchar_t key[32];

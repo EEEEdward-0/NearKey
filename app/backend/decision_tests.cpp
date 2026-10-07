@@ -43,6 +43,11 @@ int main()
     result = EvaluateProximity(settings,
         {{0x111111111111, -72, now}, {0x222222222222, -90, now}}, now);
     if (result.meanRssi != -81 || !result.outsideLockRange) return 10;
+    if (AllLanDevicesOnline(0, 0) || AllLanDevicesOnline(2, 0) ||
+        AllLanDevicesOnline(2, 1) || !AllLanDevicesOnline(2, 2) ||
+        !AllLanDevicesOnline(1, 1) || AllLanDevicesOnline(1, 0)) return 11;
+    if (UnlockConditionMet(2, true, AllLanDevicesOnline(2, 1)) ||
+        !UnlockConditionMet(2, true, AllLanDevicesOnline(2, 2))) return 12;
 
     std::puts("Proximity decisions passed.");
     return 0;

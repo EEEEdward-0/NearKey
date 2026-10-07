@@ -25,3 +25,4 @@ Decision EvaluateProximity(const Settings& settings,
 
 // One mode is selected explicitly; LAN-only never inherits a stale Bluetooth result.
 bool UnlockConditionMet(int mode, bool bluetoothNear, bool lanPresent);
+bool AllLanDevicesOnline(int configured, int online);

@@ -18,6 +18,8 @@ struct Settings
     unsigned lockDelaySeconds = 60;
     bool automaticLock = false;
     bool automaticUnlock = true;
+    // Enter or A-Z virtual-key code.
+    int unlockKey = 13;
     // 0: Bluetooth, 1: LAN, 2: both.
     int unlockMode = 0;
     std::wstring lanIp;

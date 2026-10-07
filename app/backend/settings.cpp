@@ -49,6 +49,9 @@ Settings LoadSettings()
     settings.lockDelaySeconds = GetPrivateProfileIntW(L"Signal", L"LockDelaySeconds", 60, path.c_str());
     settings.automaticLock = GetPrivateProfileIntW(L"Behavior", L"AutomaticLock", 0, path.c_str()) != 0;
     settings.automaticUnlock = GetPrivateProfileIntW(L"Behavior", L"AutomaticUnlock", 1, path.c_str()) != 0;
+    settings.unlockKey = GetPrivateProfileIntW(L"Behavior", L"UnlockKey", 13, path.c_str());
+    if (settings.unlockKey != 13 && (settings.unlockKey < 'A' || settings.unlockKey > 'Z'))
+        settings.unlockKey = 13;
     settings.unlockMode = GetPrivateProfileIntW(L"Behavior", L"UnlockMode", 0, path.c_str());
     if (settings.unlockMode < 0 || settings.unlockMode > 2) settings.unlockMode = 0;
     wchar_t lanIp[64] = {}, lanMac[64] = {};
@@ -81,7 +84,8 @@ bool SaveSettings(const Settings& settings)
     if (settings.devices.size() > 8 || settings.unlockThreshold < -100 ||
         settings.unlockThreshold > -20 || settings.lockThreshold < -100 ||
         settings.lockThreshold > settings.unlockThreshold ||
-        settings.lockDelaySeconds < 10 || settings.lockDelaySeconds > 600)
+        settings.lockDelaySeconds < 10 || settings.lockDelaySeconds > 600 ||
+        (settings.unlockKey != 13 && (settings.unlockKey < 'A' || settings.unlockKey > 'Z')))
         return false;
     if (settings.unlockMode < 0 || settings.unlockMode > 2) return false;
     const std::wstring path = SettingsPath();
@@ -96,6 +100,7 @@ bool SaveSettings(const Settings& settings)
         !writeNumber(L"Signal", L"LockDelaySeconds", settings.lockDelaySeconds) ||
         !writeNumber(L"Behavior", L"AutomaticLock", settings.automaticLock) ||
         !writeNumber(L"Behavior", L"AutomaticUnlock", settings.automaticUnlock) ||
+        !writeNumber(L"Behavior", L"UnlockKey", settings.unlockKey) ||
         !writeNumber(L"Behavior", L"UnlockMode", settings.unlockMode) ||
         !writeNumber(L"Devices", L"Count", static_cast<int>(settings.devices.size())))
         return false;

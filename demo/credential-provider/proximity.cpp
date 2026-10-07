@@ -92,8 +92,9 @@ bool IsExistingSessionForUser(PCWSTR userSid)
     return matches;
 }
 
-bool IsUnlockConditionMet(PCWSTR userSid)
+bool IsUnlockConditionMet(PCWSTR userSid, DWORD* unlockKey)
 {
+    if (unlockKey) *unlockKey = VK_RETURN;
     wchar_t pipeName[256];
     if (!BuildProximityPipeName(userSid, pipeName, ARRAYSIZE(pipeName)))
     {
@@ -143,9 +144,18 @@ bool IsUnlockConditionMet(PCWSTR userSid)
                       bytes == sizeof(packet);
     CloseHandle(pipe);
     if (!read || packet.magic != kProximityPacketMagic ||
-        packet.version != kProximityPacketVersion || packet.lastSeenTick == 0)
+        (packet.version != 1 && packet.version != kProximityPacketVersion) ||
+        (packet.version == kProximityPacketVersion && packet.unlockKey != VK_RETURN &&
+         (packet.unlockKey < 'A' || packet.unlockKey > 'Z')))
     {
         RecordProbe(userSid, 2, read ? ERROR_INVALID_DATA : GetLastError(), 0);
+        return false;
+    }
+    if (unlockKey && packet.version == kProximityPacketVersion)
+        *unlockKey = packet.unlockKey;
+    if (packet.lastSeenTick == 0)
+    {
+        RecordProbe(userSid, 3, 0, 0);
         return false;
     }
     const ULONGLONG now = GetTickCount64();

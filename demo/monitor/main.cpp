@@ -67,15 +67,15 @@ namespace
             HANDLE pipe = CreateNamedPipeW(pipeName.c_str(), PIPE_ACCESS_OUTBOUND |
                 (firstInstance ? FILE_FLAG_FIRST_PIPE_INSTANCE : 0),
                 PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
-                1, sizeof(ProximityPacket), 0, 0, nullptr);
+                1, sizeof(ProximityPacketV1), 0, 0, nullptr);
             if (pipe == INVALID_HANDLE_VALUE) return;
             firstInstance = false;
             const bool connected = ConnectNamedPipe(pipe, nullptr) ||
                                    GetLastError() == ERROR_PIPE_CONNECTED;
             if (connected)
             {
-                const ProximityPacket packet = {
-                    kProximityPacketMagic, kProximityPacketVersion,
+                const ProximityPacketV1 packet = {
+                    kProximityPacketMagic, 1,
                     lastSeen.load(), lastRssi.load()
                 };
                 DWORD written = 0;

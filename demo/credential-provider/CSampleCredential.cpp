@@ -81,7 +81,7 @@ HRESULT CSampleCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
     }
     if (SUCCEEDED(hr))
     {
-        hr = SHStrDupW(L"Bring iPhone near, then click Login", &_rgFieldStrings[SFI_LARGE_TEXT]);
+        hr = SHStrDupW(L"设备靠近后，按设置的键或点击 Login", &_rgFieldStrings[SFI_LARGE_TEXT]);
     }
     if (SUCCEEDED(hr))
     {
@@ -216,17 +216,18 @@ HRESULT CSampleCredential::UnAdvise()
 // selected, you would do it here.
 HRESULT CSampleCredential::SetSelected(_Out_ BOOL *pbAutoLogon)
 {
-    *pbAutoLogon = IsNearbyForAutoLogon() ? TRUE : FALSE;
+    // Selecting the tile must not submit the stored password without an action.
+    *pbAutoLogon = FALSE;
     RecordLoginFlow(L"LastAutoSelected", *pbAutoLogon);
     return S_OK;
 }
 
-bool CSampleCredential::IsNearbyForAutoLogon() const
+bool CSampleCredential::IsAvailableForUnlock() const
 {
     const bool existingSession = IsExistingSessionForUser(_pszUserSid);
     RecordLoginFlow(L"LastExistingSession", existingSession ? 1 : 0);
     return (_cpus == CPUS_UNLOCK_WORKSTATION || _cpus == CPUS_LOGON) &&
-        existingSession && IsUnlockConditionMet(_pszUserSid);
+        existingSession;
 }
 
 // Similarly to SetSelected, LogonUI calls this when your tile was selected
@@ -539,7 +540,7 @@ HRESULT CSampleCredential::GetSerialization(_Out_ CREDENTIAL_PROVIDER_GET_SERIAL
 
     // The scanner never owns credentials. Recheck the selected condition
     // immediately before decrypting the locally configured password.
-    if (!IsUnlockConditionMet(_pszUserSid))
+    if (!IsAvailableForUnlock() || !IsUnlockConditionMet(_pszUserSid))
     {
         SHStrDupW(L"解锁条件未满足，请选择 Windows PIN 或密码登录。", ppwszOptionalStatusText);
         *pcpsiOptionalStatusIcon = CPSI_WARNING;

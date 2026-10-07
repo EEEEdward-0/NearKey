@@ -18,6 +18,12 @@
 #include "proximity.h"
 #include <thread>
 
+namespace
+{
+    std::atomic<ULONGLONG> pendingKeyUnlock{0};
+    std::atomic<ULONGLONG> lastKeyUnlock{0};
+}
+
 CSampleProvider::CSampleProvider():
     _cRef(1),
     _pCredential(nullptr),
@@ -114,8 +120,13 @@ HRESULT CSampleProvider::Advise(
     if (FAILED(hr)) return hr;
     auto stop = std::make_shared<std::atomic<bool>>(false);
     _stopProximityWatch = stop;
-    std::thread([stream, stop, upAdviseContext]()
+    HDESK desktop = GetThreadDesktop(GetCurrentThreadId());
+    std::thread([stream, stop, upAdviseContext, desktop]()
     {
+        const bool desktopSet = desktop != nullptr && SetThreadDesktop(desktop);
+        const DWORD desktopError = desktopSet ? ERROR_SUCCESS : GetLastError();
+        RecordLoginFlow(L"LastEnterProbeDesktopSet", desktopSet ? 1 : 0);
+        RecordLoginFlow(L"LastEnterProbeDesktopError", desktopError);
         if (FAILED(CoInitializeEx(nullptr, COINIT_MULTITHREADED)))
         {
             stream->Release();
@@ -129,33 +140,54 @@ HRESULT CSampleProvider::Advise(
             const bool hasSid = RegGetValueW(HKEY_LOCAL_MACHINE,
                 L"SOFTWARE\\BluetoothUnlockDemo", L"UserSid", RRF_RT_REG_SZ,
                 nullptr, sid, &bytes) == ERROR_SUCCESS;
-            bool wasNearby = hasSid && IsExistingSessionForUser(sid) && IsUnlockConditionMet(sid);
-            bool notified = false;
-            static std::atomic<ULONGLONG> lastRefresh{0};
+            DWORD unlockKey = VK_RETURN;
+            if (hasSid && IsExistingSessionForUser(sid))
+                IsUnlockConditionMet(sid, &unlockKey);
+            DWORD keyCount = 0;
+            DWORD countBytes = sizeof(keyCount);
+            RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\BluetoothUnlockDemo",
+                L"LastUnlockKeyProbeCount", RRF_RT_REG_DWORD, nullptr, &keyCount, &countBytes);
+            bool keyWasDown = (GetAsyncKeyState(unlockKey) & 0x8000) != 0;
+            unsigned keySettingPolls = 0;
+            RecordLoginFlow(L"LastUnlockKeyProbeStartTick", GetTickCount());
             while (!stop->load())
             {
-                Sleep(1500);
+                Sleep(50);
                 if (stop->load()) break;
-                const bool isNearby = hasSid && IsExistingSessionForUser(sid) && IsUnlockConditionMet(sid);
-                if (!isNearby && wasNearby)
+                const bool keyIsDown = (GetAsyncKeyState(unlockKey) & 0x8000) != 0;
+                // Trigger on a new press, not while the key is held. Recheck the live key
+                // and proximity together so a recently changed setting cannot submit.
+                if (keyIsDown && !keyWasDown)
                 {
-                    // Remove our tile when the condition disappears so Windows' own
-                    // password and PIN providers remain the visible sign-in path.
-                    events->CredentialsChanged(upAdviseContext);
-                    notified = false;
-                }
-                else if (isNearby && (!wasNearby || !notified))
-                {
-                    const ULONGLONG now = GetTickCount64();
-                    ULONGLONG prior = lastRefresh.load();
-                    if (now - prior > 30000 && lastRefresh.compare_exchange_strong(prior, now))
+                    RecordLoginFlow(L"LastUnlockKeyProbeTick", GetTickCount());
+                    RecordLoginFlow(L"LastUnlockKeyProbeCount", ++keyCount);
+                    DWORD liveKey = VK_RETURN;
+                    if (hasSid && IsExistingSessionForUser(sid) &&
+                        IsUnlockConditionMet(sid, &liveKey) && liveKey == unlockKey)
                     {
-                        RecordLoginFlow(L"LastAutoRefreshTick", GetTickCount());
-                        events->CredentialsChanged(upAdviseContext);
-                        notified = true;
+                        const ULONGLONG now = GetTickCount64();
+                        ULONGLONG previous = lastKeyUnlock.load();
+                        if (now - previous > 3000 &&
+                            lastKeyUnlock.compare_exchange_strong(previous, now))
+                        {
+                            pendingKeyUnlock.store(now);
+                            RecordLoginFlow(L"LastUnlockKeyRequestTick", GetTickCount());
+                            events->CredentialsChanged(upAdviseContext);
+                        }
                     }
                 }
-                wasNearby = isNearby;
+                keyWasDown = keyIsDown;
+                if (++keySettingPolls < 30) continue;
+                keySettingPolls = 0;
+                DWORD refreshedKey = VK_RETURN;
+                if (hasSid && IsExistingSessionForUser(sid))
+                    IsUnlockConditionMet(sid, &refreshedKey);
+                if (refreshedKey != unlockKey)
+                {
+                    unlockKey = refreshedKey;
+                    // A key already held when settings change must not count as a new press.
+                    keyWasDown = (GetAsyncKeyState(unlockKey) & 0x8000) != 0;
+                }
             }
             events->Release();
         }
@@ -228,12 +260,17 @@ HRESULT CSampleProvider::GetCredentialCount(
         _CreateEnumeratedCredentials();
     }
 
-    const bool eligible = _pCredential != nullptr && _pCredential->IsNearbyForAutoLogon();
+    const bool eligible = _pCredential != nullptr && _pCredential->IsAvailableForUnlock();
     *pdwCount = eligible ? 1 : 0;
     if (eligible)
     {
         *pdwDefault = 0;
-        *pbAutoLogonWithDefault = TRUE;
+        const ULONGLONG request = pendingKeyUnlock.exchange(0);
+        if (request != 0 && GetTickCount64() - request < 5000)
+        {
+            *pbAutoLogonWithDefault = TRUE;
+            RecordLoginFlow(L"LastUnlockKeyAutoSubmitTick", GetTickCount());
+        }
     }
     RecordLoginFlow(L"LastAutoDefault", *pbAutoLogonWithDefault);
     RecordLoginFlow(L"LastAutoScenario", _cpus);

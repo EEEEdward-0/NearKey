@@ -20,6 +20,9 @@ Get-CimInstance Win32_Process -Filter "Name = 'BluetoothBackend.exe'" |
     Where-Object { $_.ExecutablePath -eq $installedBackend } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 Copy-Item -LiteralPath $backend -Destination $installedBackend -Force
+Get-CimInstance Win32_Process -Filter "Name = 'BluetoothUnlock.UI.exe'" |
+    Where-Object { $_.ExecutablePath -eq (Join-Path $destination 'BluetoothUnlock.UI.exe') } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 foreach ($name in @('BluetoothUnlock.UI.exe', 'BluetoothUnlock.UI.dll',
                     'BluetoothUnlock.UI.deps.json', 'BluetoothUnlock.UI.runtimeconfig.json')) {
     Copy-Item -LiteralPath (Join-Path $uiDirectory $name) -Destination (Join-Path $destination $name) -Force

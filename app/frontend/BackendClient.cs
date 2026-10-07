@@ -7,18 +7,19 @@ using Microsoft.Win32;
 namespace BluetoothUnlock.UI;
 
 internal sealed record DeviceRow(string Address, string Name, int Rssi, int AgeSeconds = -1,
-    bool IsSelected = false)
+    bool IsSelected = false, bool MissingFromScan = false, bool IsPaired = false)
 {
-    public string SignalText => Rssi == 0 ? "" : $"{Rssi} dBm";
+    public string SignalText => MissingFromScan ? "未检测到" : Rssi == 0 ? "" : $"{Rssi} dBm";
     public string DisplayAddress => Address.Length == 12 ?
         string.Join(":", Enumerable.Range(0, 6).Select(index => Address.Substring(index * 2, 2))) : Address;
-    public string DeviceDetail => AgeSeconds < 0 ? $"蓝牙 MAC  {DisplayAddress}" :
-        $"BLE · 蓝牙 MAC  {DisplayAddress} · {AgeSeconds} 秒前";
-    public string IdentityText => IsSelected ? "已选择" : "身份未确认";
+    public string DeviceDetail => MissingFromScan ? $"MAC {DisplayAddress}\n最近 30 秒未收到广播" :
+        AgeSeconds < 0 ? $"MAC {DisplayAddress}" :
+        $"MAC {DisplayAddress}\n{AgeSeconds} 秒前收到广播";
+    public string IdentityText => IsSelected ? "已选择" : IsPaired ? "Windows 已配对" : "身份未确认";
 }
 
 internal sealed record BackendSettings(int UnlockThreshold, int LockThreshold,
-    int LockDelaySeconds, bool AutomaticLock, bool AutomaticUnlock, int UnlockMode,
+    int LockDelaySeconds, bool AutomaticLock, bool AutomaticUnlock, int UnlockKey, int UnlockMode,
     string LanIp, string LanMac,
     IReadOnlyList<DeviceRow> Devices);
 
@@ -81,6 +82,8 @@ internal sealed class BackendClient
 
     public BackendSettings ReadSettings()
     {
+        var unlockKey = ReadInt("Behavior", "UnlockKey", 13);
+        if (unlockKey != 13 && (unlockKey < 'A' || unlockKey > 'Z')) unlockKey = 13;
         var devices = new List<DeviceRow>();
         var count = Math.Clamp(ReadInt("Devices", "Count", 0), 0, 8);
         for (var index = 0; index < count; index++)
@@ -95,6 +98,7 @@ internal sealed class BackendClient
             ReadInt("Signal", "LockDelaySeconds", 60),
             ReadInt("Behavior", "AutomaticLock", 0) != 0,
             ReadInt("Behavior", "AutomaticUnlock", 1) != 0,
+            unlockKey,
             Math.Clamp(ReadInt("Behavior", "UnlockMode", 0), 0, 2),
             ReadIni("LAN", "IPv4", ""), ReadIni("LAN", "Mac", ""), devices);
     }
@@ -102,21 +106,48 @@ internal sealed class BackendClient
     public IReadOnlyList<DeviceRow> ReadDiscovered()
     {
         var path = Path.Combine(_dataDirectory, "discovered.tsv");
-        if (!File.Exists(path)) return [];
         try
         {
-            var selectedNames = ReadSettings().Devices.ToDictionary(
+            var selectedDevices = ReadSettings().Devices;
+            var selectedNames = selectedDevices.ToDictionary(
                 device => device.Address, device => device.Name,
                 StringComparer.OrdinalIgnoreCase);
-            return File.ReadLines(path, Encoding.UTF8).Select(line => line.Split('\t'))
+            var pairedPath = Path.Combine(_dataDirectory, "paired.tsv");
+            var pairedNames = (File.Exists(pairedPath) ? File.ReadLines(pairedPath, Encoding.UTF8) : [])
+                .Select(line => line.Split('\t'))
+                .Where(parts => parts.Length == 2 && parts[0].Length == 12)
+                .GroupBy(parts => parts[0], StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.Last()[1],
+                    StringComparer.OrdinalIgnoreCase);
+            var discovered = (File.Exists(path) ? File.ReadLines(path, Encoding.UTF8) : [])
+                .Select(line => line.Split('\t'))
                 .Where(parts => parts.Length >= 3 && parts[0].Length == 12 &&
                                 int.TryParse(parts[1], out _))
                 .Select(parts => new DeviceRow(parts[0],
                     selectedNames.GetValueOrDefault(parts[0],
-                        string.IsNullOrWhiteSpace(parts[2]) ? "未命名 BLE 设备" : parts[2]),
+                        pairedNames.GetValueOrDefault(parts[0],
+                            string.IsNullOrWhiteSpace(parts[2]) ? "未命名 BLE 设备" : parts[2])),
                     int.Parse(parts[1]), parts.Length > 3 && int.TryParse(parts[3], out var age)
-                        ? age : -1, selectedNames.ContainsKey(parts[0])))
+                        ? age : -1, selectedNames.ContainsKey(parts[0]),
+                    IsPaired: pairedNames.ContainsKey(parts[0])))
+                .ToArray();
+            var seenAddresses = discovered.Select(device => device.Address)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            // Keep saved and paired devices visible while absent, without inventing live RSSI.
+            return discovered.Concat(selectedDevices
+                    .Where(device => !seenAddresses.Contains(device.Address))
+                    .Select(device => device with
+                    {
+                        MissingFromScan = true,
+                        IsPaired = pairedNames.ContainsKey(device.Address)
+                    }))
+                .Concat(pairedNames.Where(pair => !seenAddresses.Contains(pair.Key) &&
+                        !selectedNames.ContainsKey(pair.Key))
+                    .Select(pair => new DeviceRow(pair.Key, pair.Value, 0,
+                        MissingFromScan: true, IsPaired: true)))
                 .OrderByDescending(device => device.IsSelected)
+                .ThenByDescending(device => device.IsPaired)
+                .ThenBy(device => device.MissingFromScan)
                 .ThenBy(device => device.AgeSeconds)
                 .ToArray();
         }

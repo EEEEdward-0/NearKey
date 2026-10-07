@@ -1,7 +1,10 @@
 #include <windows.h>
 #include <sddl.h>
 #include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Foundation.Collections.h>
+#include <winrt/Windows.Devices.Bluetooth.h>
 #include <winrt/Windows.Devices.Bluetooth.Advertisement.h>
+#include <winrt/Windows.Devices.Enumeration.h>
 
 #include <algorithm>
 #include <atomic>
@@ -21,6 +24,8 @@
 #include "../../demo/shared/proximity_pipe.h"
 
 using namespace winrt::Windows::Devices::Bluetooth::Advertisement;
+using namespace winrt::Windows::Devices::Bluetooth;
+using namespace winrt::Windows::Devices::Enumeration;
 
 namespace
 {
@@ -108,9 +113,29 @@ namespace
         std::wstring name;
     };
 
+    std::map<uint64_t, std::wstring> PairedBleDevices()
+    {
+        // Pairing supplies names for exact address matches; it is not proof of proximity.
+        std::map<uint64_t, std::wstring> paired;
+        const auto devices = DeviceInformation::FindAllAsync(
+            BluetoothLEDevice::GetDeviceSelectorFromPairingState(true)).get();
+        for (const auto& device : devices)
+        {
+            try
+            {
+                const auto bluetooth = BluetoothLEDevice::FromIdAsync(device.Id()).get();
+                if (bluetooth && bluetooth.BluetoothAddress() != 0)
+                    paired[bluetooth.BluetoothAddress()] = CleanName(device.Name().c_str());
+            }
+            catch (const winrt::hresult_error&) {}
+        }
+        return paired;
+    }
+
     void ServeProximity(const std::wstring& pipeName,
                         const std::atomic<ULONGLONG>& lastEligible,
-                        const std::atomic<LONG>& meanRssi)
+                        const std::atomic<LONG>& meanRssi,
+                        const std::atomic<DWORD>& unlockKey)
     {
         bool first = true;
         while (running)
@@ -125,7 +150,7 @@ namespace
             {
                 const ProximityPacket packet = {
                     kProximityPacketMagic, kProximityPacketVersion,
-                    lastEligible.load(), meanRssi.load()
+                    lastEligible.load(), meanRssi.load(), unlockKey.load()
                 };
                 DWORD written = 0;
                 WriteFile(pipe, &packet, sizeof(packet), &written, nullptr);
@@ -157,8 +182,9 @@ namespace
 
         std::atomic<ULONGLONG> lastEligible{0};
         std::atomic<LONG> meanRssi{0};
+        std::atomic<DWORD> unlockKey{VK_RETURN};
         std::thread pipeServer(ServeProximity, std::wstring(pipeName),
-            std::cref(lastEligible), std::cref(meanRssi));
+            std::cref(lastEligible), std::cref(meanRssi), std::cref(unlockKey));
         SetConsoleCtrlHandler(StopOnConsoleEvent, TRUE);
         winrt::init_apartment();
         BluetoothLEAdvertisementWatcher watcher;
@@ -182,6 +208,7 @@ namespace
         bool lockedThisAbsence = false;
         bool priorNear = false;
         ULONGLONG lastSnapshot = 0;
+        ULONGLONG lastPairedRefresh = 0;
         ULONGLONG lastLanProbe = 0;
         bool lanPresent = false;
         std::wstring probedLanIp;
@@ -189,7 +216,21 @@ namespace
         while (running)
         {
             const ULONGLONG now = GetTickCount64();
+            if (!lastPairedRefresh || now - lastPairedRefresh >= 60000)
+            {
+                // Refresh the identity cache independently of the live RSSI observations.
+                try
+                {
+                    std::string list;
+                    for (const auto& [address, name] : PairedBleDevices())
+                        list += Utf8(FormatBluetoothAddress(address)) + "\t" + Utf8(name) + "\n";
+                    WriteText(DataDirectory() + L"\\paired.tsv", list);
+                }
+                catch (const winrt::hresult_error&) {}
+                lastPairedRefresh = now;
+            }
             const Settings settings = LoadSettings();
+            unlockKey = static_cast<DWORD>(settings.unlockKey);
             std::vector<Observation> observations;
             std::vector<std::pair<uint64_t, SeenDevice>> discovered;
             {
@@ -328,7 +369,8 @@ namespace
         }
         Settings settings = LoadSettings();
         if ((argc == 7 && wcscmp(argv[1], L"--configure") == 0) ||
-            (argc == 10 && wcscmp(argv[1], L"--configure-v2") == 0))
+            (argc == 10 && wcscmp(argv[1], L"--configure-v2") == 0) ||
+            (argc == 11 && wcscmp(argv[1], L"--configure-v3") == 0))
         {
             long values[5];
             for (int i = 0; i < 5; ++i)
@@ -344,7 +386,7 @@ namespace
             settings.lockDelaySeconds = values[2];
             settings.automaticLock = values[3] != 0;
             settings.automaticUnlock = values[4] != 0;
-            if (argc == 10)
+            if (argc >= 10)
             {
                 wchar_t* end = nullptr;
                 const long mode = wcstol(argv[7], &end, 10);
@@ -356,6 +398,13 @@ namespace
                 if (!*argv[9]) settings.lanMac = 0;
                 if (settings.unlockMode != 0 &&
                     (!IsValidLanIpv4(settings.lanIp) || settings.lanMac == 0)) return 2;
+            }
+            if (argc == 11)
+            {
+                wchar_t* end = nullptr;
+                const long key = wcstol(argv[10], &end, 10);
+                if (!end || *end || (key != VK_RETURN && (key < 'A' || key > 'Z'))) return 2;
+                settings.unlockKey = static_cast<int>(key);
             }
         }
         else if (argc == 4 && wcscmp(argv[1], L"--add") == 0)
@@ -394,6 +443,13 @@ namespace
 
 int wmain(int argc, wchar_t** argv)
 {
+    if (argc == 2 && wcscmp(argv[1], L"--list-paired-ble") == 0)
+    {
+        winrt::init_apartment();
+        for (const auto& [address, name] : PairedBleDevices())
+            printf("%s\t%s\n", Utf8(FormatBluetoothAddress(address)).c_str(), Utf8(name).c_str());
+        return 0;
+    }
     if (argc == 1 || (argc == 2 && wcscmp(argv[1], L"--run") == 0))
         return RunMonitor();
     return RunCommand(argc, argv);

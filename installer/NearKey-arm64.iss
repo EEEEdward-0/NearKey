@@ -16,6 +16,10 @@ Compression=lzma2
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=ARM64
 PrivilegesRequired=admin
+RestartIfNeededByRun=no
+DisableRestartPrompt=yes
+CloseApplications=yes
+RestartApplications=no
 UninstallDisplayName=NearKey - 近钥
 
 [Files]

@@ -218,6 +218,35 @@ public partial class MainWindow : Window
         catch (Exception error) { ShowError(error); }
     }
 
+    private async void OnResolveLan(object sender, RoutedEventArgs e)
+    {
+        var ip = LanIpBox.Text.Trim();
+        var mac = LanMacBox.Text.Trim().Replace(":", "").Replace("-", "").ToUpperInvariant();
+        if ((ip.Length == 0 && mac.Length == 0) ||
+            (ip.Length > 0 && (!IPAddress.TryParse(ip, out var address) ||
+                address.AddressFamily != AddressFamily.InterNetwork)) ||
+            (mac.Length > 0 && (mac.Length != 12 || !mac.All(Uri.IsHexDigit))))
+        {
+            HintText.Text = "请先填写有效的 IPv4 地址或 12 位 Wi-Fi MAC 地址。";
+            return;
+        }
+        ResolveLanButton.IsEnabled = false;
+        HintText.Text = "正在查询局域网设备，请保持手机 Wi-Fi 开启…";
+        try
+        {
+            var result = (await _backend.RunCommandAsync("--resolve-lan", ip, mac)).Trim().Split('\t');
+            if (result.Length != 2) throw new InvalidOperationException("无法读取识别结果。");
+            LanIpBox.Text = result[0];
+            LanMacBox.Text = result[1];
+            HintText.Text = "已补全。请确认设备信息，然后点击保存设置。";
+        }
+        catch (Exception)
+        {
+            HintText.Text = "未找到匹配设备。请将手机连接到同一 Wi-Fi 并唤醒，再重试；也可手动填写。";
+        }
+        finally { ResolveLanButton.IsEnabled = true; }
+    }
+
     private async void OnManualLock(object sender, RoutedEventArgs e)
     {
         try { await _backend.RunCommandAsync("--lock"); }

@@ -210,7 +210,7 @@
                                 <RadioButton x:Name="BothMode" Content="蓝牙靠近，并且局域网设备在线" GroupName="Mode" Checked="OnModeChanged" />
                                 <StackPanel x:Name="LanFields" Margin="0,16,0,0" Visibility="Collapsed">
                                     <TextBlock Text="局域网设备信息" FontWeight="SemiBold" />
-                                    <TextBlock Text="在手机 Wi-Fi 设置中打开当前网络详情，填写 IPv4 地址和该网络的 Wi-Fi 地址。" Style="{StaticResource Help}" />
+                                    <TextBlock Text="填写一项后点击自动补全：已有 Wi-Fi MAC 可查找当前 IP；已有 IP 可读取对应 MAC。首次使用可在手机当前 Wi-Fi 网络详情中找到这两项。" Style="{StaticResource Help}" />
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />
@@ -226,7 +226,8 @@
                                             <TextBox x:Name="LanMacBox" />
                                         </StackPanel>
                                     </Grid>
-                                    <TextBlock Text="局域网只能确认设备在线，不能判断距离。" Style="{StaticResource Help}" />
+                                    <Button x:Name="ResolveLanButton" Content="自动补全" Style="{StaticResource SecondaryButton}" HorizontalAlignment="Left" Margin="0,12,0,0" Click="OnResolveLan" />
+                                    <TextBlock Text="补全后请确认这是你的手机，再保存设置。手机需与电脑在同一局域网；局域网只能确认设备在线，不能判断距离。" Style="{StaticResource Help}" />
                                 </StackPanel>
                             </StackPanel>
                         </Border>

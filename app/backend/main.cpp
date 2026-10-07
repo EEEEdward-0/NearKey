@@ -336,6 +336,16 @@ namespace
 
     int RunCommand(int argc, wchar_t** argv)
     {
+        if (argc == 4 && wcscmp(argv[1], L"--resolve-lan") == 0)
+        {
+            std::wstring ipv4 = argv[2];
+            uint64_t mac = 0;
+            if ((!ipv4.empty() && !IsValidLanIpv4(ipv4)) ||
+                (*argv[3] && !ParseBluetoothAddress(argv[3], mac))) return 2;
+            if (!ResolveLanDevice(ipv4, mac)) return 1;
+            printf("%s\t%s\n", Utf8(ipv4).c_str(), Utf8(FormatBluetoothAddress(mac)).c_str());
+            return 0;
+        }
         if (argc == 4 && wcscmp(argv[1], L"--probe-lan") == 0)
         {
             uint64_t mac = 0;

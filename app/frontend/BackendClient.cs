@@ -51,18 +51,22 @@ internal sealed class BackendClient
         });
     }
 
-    public async Task RunCommandAsync(params string[] arguments)
+    public async Task<string> RunCommandAsync(params string[] arguments)
     {
         var start = new ProcessStartInfo(_executable)
         {
             UseShellExecute = false,
             CreateNoWindow = true,
-            RedirectStandardError = true
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            StandardOutputEncoding = Encoding.UTF8
         };
         foreach (var argument in arguments) start.ArgumentList.Add(argument);
         using var process = Process.Start(start) ?? throw new InvalidOperationException("无法启动后台命令。 ");
+        var output = process.StandardOutput.ReadToEndAsync();
         await process.WaitForExitAsync();
         if (process.ExitCode != 0) throw new InvalidOperationException($"设置未保存，后台返回代码 {process.ExitCode}。");
+        return await output;
     }
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetPrivateProfileStringW")]

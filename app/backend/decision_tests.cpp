@@ -24,6 +24,10 @@ int main()
         {{0x111111111111, -40, now - 20001}, {0x333333333333, -30, now}}, now);
     if (result.detected != 0 || result.unlock || !result.outsideLockRange) return 3;
 
+    if (!UnlockConditionMet(0, true, false) || UnlockConditionMet(0, false, true)) return 4;
+    if (!UnlockConditionMet(1, false, true) || UnlockConditionMet(1, true, false)) return 5;
+    if (!UnlockConditionMet(2, true, true) || UnlockConditionMet(2, true, false)) return 6;
+
     std::puts("Proximity decisions passed.");
     return 0;
 }

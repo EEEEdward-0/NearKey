@@ -49,6 +49,13 @@ Settings LoadSettings()
     settings.lockDelaySeconds = GetPrivateProfileIntW(L"Signal", L"LockDelaySeconds", 60, path.c_str());
     settings.automaticLock = GetPrivateProfileIntW(L"Behavior", L"AutomaticLock", 0, path.c_str()) != 0;
     settings.automaticUnlock = GetPrivateProfileIntW(L"Behavior", L"AutomaticUnlock", 1, path.c_str()) != 0;
+    settings.unlockMode = GetPrivateProfileIntW(L"Behavior", L"UnlockMode", 0, path.c_str());
+    if (settings.unlockMode < 0 || settings.unlockMode > 2) settings.unlockMode = 0;
+    wchar_t lanIp[64] = {}, lanMac[64] = {};
+    GetPrivateProfileStringW(L"LAN", L"IPv4", L"", lanIp, 64, path.c_str());
+    GetPrivateProfileStringW(L"LAN", L"Mac", L"", lanMac, 64, path.c_str());
+    settings.lanIp = lanIp;
+    ParseBluetoothAddress(lanMac, settings.lanMac);
     if (settings.unlockThreshold < -100 || settings.unlockThreshold > -20) settings.unlockThreshold = -65;
     if (settings.lockThreshold < -100 || settings.lockThreshold > settings.unlockThreshold)
         settings.lockThreshold = settings.unlockThreshold < -80 ? settings.unlockThreshold : -80;
@@ -76,6 +83,7 @@ bool SaveSettings(const Settings& settings)
         settings.lockThreshold > settings.unlockThreshold ||
         settings.lockDelaySeconds < 10 || settings.lockDelaySeconds > 600)
         return false;
+    if (settings.unlockMode < 0 || settings.unlockMode > 2) return false;
     const std::wstring path = SettingsPath();
     wchar_t number[32];
     auto writeNumber = [&](const wchar_t* section, const wchar_t* key, int value)
@@ -88,7 +96,12 @@ bool SaveSettings(const Settings& settings)
         !writeNumber(L"Signal", L"LockDelaySeconds", settings.lockDelaySeconds) ||
         !writeNumber(L"Behavior", L"AutomaticLock", settings.automaticLock) ||
         !writeNumber(L"Behavior", L"AutomaticUnlock", settings.automaticUnlock) ||
+        !writeNumber(L"Behavior", L"UnlockMode", settings.unlockMode) ||
         !writeNumber(L"Devices", L"Count", static_cast<int>(settings.devices.size())))
+        return false;
+    if (!WritePrivateProfileStringW(L"LAN", L"IPv4", settings.lanIp.c_str(), path.c_str()) ||
+        !WritePrivateProfileStringW(L"LAN", L"Mac",
+            settings.lanMac ? FormatBluetoothAddress(settings.lanMac).c_str() : L"", path.c_str()))
         return false;
     for (size_t i = 0; i < settings.devices.size(); ++i)
     {

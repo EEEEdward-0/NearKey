@@ -158,8 +158,8 @@ int wmain(int argc, wchar_t **argv)
         bool isNear = false;
         if (argc == 3)
         {
-            isNear = IsIPhoneNearby(argv[2]);
-            std::printf("Target user's iPhone state: %s\n",
+            isNear = IsUnlockConditionMet(argv[2]);
+            std::printf("Target user's unlock condition: %s\n",
                         isNear ? "near" : "old or missing");
         }
         else if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
@@ -171,8 +171,8 @@ int wmain(int argc, wchar_t **argv)
             if (user && GetTokenInformation(token, TokenUser, user, size, &size) &&
                 ConvertSidToStringSidW(user->User.Sid, &sid))
             {
-                isNear = IsIPhoneNearby(sid);
-                std::printf("Current user's iPhone state: %s\n",
+                isNear = IsUnlockConditionMet(sid);
+                std::printf("Current user's unlock condition: %s\n",
                             isNear ? "near" : "old or missing");
             }
             LocalFree(sid);

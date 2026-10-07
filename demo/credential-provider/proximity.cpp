@@ -92,7 +92,7 @@ bool IsExistingSessionForUser(PCWSTR userSid)
     return matches;
 }
 
-bool IsIPhoneNearby(PCWSTR userSid)
+bool IsUnlockConditionMet(PCWSTR userSid)
 {
     wchar_t pipeName[256];
     if (!BuildProximityPipeName(userSid, pipeName, ARRAYSIZE(pipeName)))

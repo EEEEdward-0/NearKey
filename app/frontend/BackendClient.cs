@@ -6,13 +6,20 @@ using Microsoft.Win32;
 
 namespace BluetoothUnlock.UI;
 
-internal sealed record DeviceRow(string Address, string Name, int Rssi)
+internal sealed record DeviceRow(string Address, string Name, int Rssi, int AgeSeconds = -1,
+    bool IsSelected = false)
 {
     public string SignalText => Rssi == 0 ? "" : $"{Rssi} dBm";
+    public string DisplayAddress => Address.Length == 12 ?
+        string.Join(":", Enumerable.Range(0, 6).Select(index => Address.Substring(index * 2, 2))) : Address;
+    public string DeviceDetail => AgeSeconds < 0 ? $"蓝牙 MAC  {DisplayAddress}" :
+        $"BLE · 蓝牙 MAC  {DisplayAddress} · {AgeSeconds} 秒前";
+    public string IdentityText => IsSelected ? "已选择" : "身份未确认";
 }
 
 internal sealed record BackendSettings(int UnlockThreshold, int LockThreshold,
-    int LockDelaySeconds, bool AutomaticLock, bool AutomaticUnlock,
+    int LockDelaySeconds, bool AutomaticLock, bool AutomaticUnlock, int UnlockMode,
+    string LanIp, string LanMac,
     IReadOnlyList<DeviceRow> Devices);
 
 internal sealed class BackendClient
@@ -80,13 +87,16 @@ internal sealed class BackendClient
         {
             var address = ReadIni("Devices", $"Address{index}", "");
             if (address.Length == 12)
-                devices.Add(new DeviceRow(address, ReadIni("Devices", $"Name{index}", "设备"), 0));
+                devices.Add(new DeviceRow(address, ReadIni("Devices", $"Name{index}", "设备"), 0,
+                    IsSelected: true));
         }
         return new BackendSettings(ReadInt("Signal", "UnlockThreshold", -65),
             ReadInt("Signal", "LockThreshold", -80),
             ReadInt("Signal", "LockDelaySeconds", 60),
             ReadInt("Behavior", "AutomaticLock", 0) != 0,
-            ReadInt("Behavior", "AutomaticUnlock", 1) != 0, devices);
+            ReadInt("Behavior", "AutomaticUnlock", 1) != 0,
+            Math.Clamp(ReadInt("Behavior", "UnlockMode", 0), 0, 2),
+            ReadIni("LAN", "IPv4", ""), ReadIni("LAN", "Mac", ""), devices);
     }
 
     public IReadOnlyList<DeviceRow> ReadDiscovered()
@@ -99,12 +109,16 @@ internal sealed class BackendClient
                 device => device.Address, device => device.Name,
                 StringComparer.OrdinalIgnoreCase);
             return File.ReadLines(path, Encoding.UTF8).Select(line => line.Split('\t'))
-                .Where(parts => parts.Length == 3 && parts[0].Length == 12 &&
+                .Where(parts => parts.Length >= 3 && parts[0].Length == 12 &&
                                 int.TryParse(parts[1], out _))
                 .Select(parts => new DeviceRow(parts[0],
                     selectedNames.GetValueOrDefault(parts[0],
-                        string.IsNullOrWhiteSpace(parts[2]) ? "未命名蓝牙设备" : parts[2]),
-                    int.Parse(parts[1]))).ToArray();
+                        string.IsNullOrWhiteSpace(parts[2]) ? "未命名 BLE 设备" : parts[2]),
+                    int.Parse(parts[1]), parts.Length > 3 && int.TryParse(parts[3], out var age)
+                        ? age : -1, selectedNames.ContainsKey(parts[0])))
+                .OrderByDescending(device => device.IsSelected)
+                .ThenBy(device => device.AgeSeconds)
+                .ToArray();
         }
         catch (IOException) { return []; }
     }

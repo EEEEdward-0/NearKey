@@ -18,6 +18,10 @@ struct Settings
     unsigned lockDelaySeconds = 60;
     bool automaticLock = false;
     bool automaticUnlock = true;
+    // 0: Bluetooth, 1: LAN, 2: both.
+    int unlockMode = 0;
+    std::wstring lanIp;
+    uint64_t lanMac = 0;
 };
 
 std::wstring DataDirectory();

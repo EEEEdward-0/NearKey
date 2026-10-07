@@ -26,3 +26,10 @@ Decision EvaluateProximity(const Settings& settings,
     }
     return result;
 }
+
+bool UnlockConditionMet(int mode, bool bluetoothNear, bool lanPresent)
+{
+    if (mode == 0) return bluetoothNear;
+    if (mode == 1) return lanPresent;
+    return mode == 2 && bluetoothNear && lanPresent;
+}

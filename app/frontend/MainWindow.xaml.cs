@@ -1,13 +1,15 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
+using System.Net;
+using System.Net.Sockets;
 
 namespace BluetoothUnlock.UI;
 
 public partial class MainWindow : Window
 {
     private readonly BackendClient _backend = new();
-    private readonly DispatcherTimer _refreshTimer = new() { Interval = TimeSpan.FromSeconds(2) };
+    private readonly DispatcherTimer _refreshTimer = new() { Interval = TimeSpan.FromSeconds(4) };
 
     public MainWindow()
     {
@@ -28,6 +30,9 @@ public partial class MainWindow : Window
             LockSlider.Value = settings.LockThreshold;
             AutoUnlockCheck.IsChecked = settings.AutomaticUnlock;
             AutoLockCheck.IsChecked = settings.AutomaticLock;
+            ModeBox.SelectedIndex = settings.UnlockMode;
+            LanIpBox.Text = settings.LanIp;
+            LanMacBox.Text = settings.LanMac;
             StartupCheck.IsChecked = _backend.StartupEnabled();
             DelayBox.SelectedItem = DelayBox.Items.OfType<ComboBoxItem>()
                 .FirstOrDefault(item => item.Tag?.ToString() == settings.LockDelaySeconds.ToString())
@@ -59,9 +64,15 @@ public partial class MainWindow : Window
             var selected = status.GetValueOrDefault("selected", "0");
             var signal = status.GetValueOrDefault("mean", "0");
             var withinRange = status.GetValueOrDefault("near", "0") == "1";
-            StatusText.Text = !online ? "后台未运行" : withinRange ? "设备在解锁范围" : "等待设备靠近";
+            StatusText.Text = !online ? "后台未运行" : withinRange ? "解锁条件已满足" : "等待解锁条件";
             MeanText.Text = detected == "0" ? "-- dBm" : $"{signal} dBm";
             DeviceCountText.Text = $"已检测 {detected} / 已选择 {selected} 台设备";
+            BluetoothStateText.Text = status.GetValueOrDefault("bluetooth_near", "0") == "1"
+                ? "蓝牙：已达到阈值" : "蓝牙：未达到阈值";
+            LanStateText.Text = status.GetValueOrDefault("mode", "0") == "0"
+                ? "局域网：当前模式未启用"
+                : status.GetValueOrDefault("lan_present", "0") == "1"
+                    ? "局域网：已找到匹配设备" : "局域网：未找到匹配设备";
             EventList.ItemsSource = _backend.ReadEvents().Select(TranslateEvent).ToArray();
         }
         catch (Exception error) { HintText.Text = $"读取状态失败：{error.Message}"; }
@@ -116,11 +127,22 @@ public partial class MainWindow : Window
             return;
         }
         var delay = (DelayBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "60";
+        var mode = Math.Max(0, ModeBox.SelectedIndex);
+        var ip = LanIpBox.Text.Trim();
+        var mac = LanMacBox.Text.Trim().Replace(":", "").Replace("-", "").ToUpperInvariant();
+        if ((ip.Length > 0 && (!IPAddress.TryParse(ip, out var address) ||
+                               address.AddressFamily != AddressFamily.InterNetwork)) ||
+            (mac.Length > 0 && (mac.Length != 12 || !mac.All(Uri.IsHexDigit))) ||
+            (mode != 0 && (ip.Length == 0 || mac.Length != 12)))
+        {
+            HintText.Text = "局域网模式需要有效的 IPv4 地址和 12 位 Wi‑Fi MAC。";
+            return;
+        }
         try
         {
-            await _backend.RunCommandAsync("--configure", unlock.ToString(), lockAt.ToString(),
+            await _backend.RunCommandAsync("--configure-v2", unlock.ToString(), lockAt.ToString(),
                 delay, AutoLockCheck.IsChecked == true ? "1" : "0",
-                AutoUnlockCheck.IsChecked == true ? "1" : "0");
+                AutoUnlockCheck.IsChecked == true ? "1" : "0", mode.ToString(), ip, mac);
             await _backend.RunCommandAsync("--startup", StartupCheck.IsChecked == true ? "1" : "0");
             HintText.Text = "设置已保存，后台会自动读取新规则。";
         }

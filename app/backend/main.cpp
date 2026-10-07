@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "decision.h"
+#include "lan.h"
 #include "settings.h"
 #include "../../demo/shared/proximity_pipe.h"
 
@@ -181,6 +182,10 @@ namespace
         bool lockedThisAbsence = false;
         bool priorNear = false;
         ULONGLONG lastSnapshot = 0;
+        ULONGLONG lastLanProbe = 0;
+        bool lanPresent = false;
+        std::wstring probedLanIp;
+        uint64_t probedLanMac = 0;
         while (running)
         {
             const ULONGLONG now = GetTickCount64();
@@ -191,7 +196,7 @@ namespace
                 std::lock_guard<std::mutex> lock(observationsMutex);
                 for (auto it = seen.begin(); it != seen.end();)
                 {
-                    if (now - it->second.tick > 120000) it = seen.erase(it);
+                    if (now - it->second.tick > 30000) it = seen.erase(it);
                     else
                     {
                         observations.push_back({it->first, it->second.rssi, it->second.tick});
@@ -201,11 +206,25 @@ namespace
                 }
             }
             const Decision decision = EvaluateProximity(settings, observations, now);
-            const bool withinUnlockRange = settings.automaticUnlock && decision.unlock;
+            if (settings.unlockMode == 0)
+            {
+                lanPresent = false;
+                lastLanProbe = 0;
+            }
+            else if (!lastLanProbe || now - lastLanProbe >= 10000 ||
+                settings.lanIp != probedLanIp || settings.lanMac != probedLanMac)
+            {
+                lanPresent = ProbeLanDevice(settings.lanIp, settings.lanMac);
+                lastLanProbe = now;
+                probedLanIp = settings.lanIp;
+                probedLanMac = settings.lanMac;
+            }
+            const bool withinUnlockRange = settings.automaticUnlock &&
+                UnlockConditionMet(settings.unlockMode, decision.unlock, lanPresent);
             if (withinUnlockRange)
             {
-                lastEligible = decision.newestTick;
-                meanRssi = decision.meanRssi;
+                lastEligible = settings.unlockMode == 0 ? decision.newestTick : now;
+                meanRssi = settings.unlockMode == 1 ? -50 : decision.meanRssi;
             }
             else
             {
@@ -217,6 +236,8 @@ namespace
                 LogEvent(withinUnlockRange ? "unlock_range_entered" : "unlock_range_left");
                 priorNear = withinUnlockRange;
             }
+            // Automatic locking keeps its original Bluetooth rule in every
+            // unlock mode; an idle iPhone Wi-Fi radio must not lock the PC.
             if (settings.automaticLock && !settings.devices.empty() && decision.outsideLockRange)
             {
                 if (!farSince) farSince = now;
@@ -234,15 +255,16 @@ namespace
                 farSince = 0;
                 lockedThisAbsence = false;
             }
-            if (now - lastSnapshot >= 2000)
+            if (now - lastSnapshot >= 4000)
             {
-                char status[256];
+                char status[384];
                 sprintf_s(status,
                     "running=1\nselected=%zu\ndetected=%d\nmean=%d\nnear=%d\n"
-                    "automatic_lock=%d\nlast_signal_tick=%llu\n",
+                    "automatic_lock=%d\nlast_signal_tick=%llu\nmode=%d\nbluetooth_near=%d\nlan_present=%d\n",
                     settings.devices.size(), decision.detected, decision.meanRssi,
                     withinUnlockRange ? 1 : 0, settings.automaticLock ? 1 : 0,
-                    static_cast<unsigned long long>(decision.newestTick));
+                    static_cast<unsigned long long>(decision.newestTick),
+                    settings.unlockMode, decision.unlock ? 1 : 0, lanPresent ? 1 : 0);
                 WriteText(DataDirectory() + L"\\status.txt", status);
                 std::string list;
                 std::sort(discovered.begin(), discovered.end(), [](const auto& left, const auto& right)
@@ -251,12 +273,13 @@ namespace
                 {
                     list += Utf8(FormatBluetoothAddress(discovered[i].first)) + "\t" +
                         std::to_string(discovered[i].second.rssi) + "\t" +
-                        Utf8(CleanName(discovered[i].second.name)) + "\n";
+                        Utf8(CleanName(discovered[i].second.name)) + "\t" +
+                        std::to_string((now - discovered[i].second.tick) / 1000) + "\n";
                 }
                 WriteText(DataDirectory() + L"\\discovered.tsv", list);
                 lastSnapshot = now;
             }
-            Sleep(500);
+            Sleep(2000);
         }
         watcher.Stop();
         watcher.Received(received);
@@ -270,6 +293,12 @@ namespace
 
     int RunCommand(int argc, wchar_t** argv)
     {
+        if (argc == 4 && wcscmp(argv[1], L"--probe-lan") == 0)
+        {
+            uint64_t mac = 0;
+            if (!ParseBluetoothAddress(argv[3], mac) || !IsValidLanIpv4(argv[2])) return 2;
+            return ProbeLanDevice(argv[2], mac) ? 0 : 1;
+        }
         if (argc == 2 && wcscmp(argv[1], L"--lock") == 0)
             return LockWorkStation() ? 0 : 1;
         if (argc == 3 && wcscmp(argv[1], L"--startup") == 0)
@@ -298,7 +327,8 @@ namespace
             return result == ERROR_SUCCESS || result == ERROR_FILE_NOT_FOUND ? 0 : 1;
         }
         Settings settings = LoadSettings();
-        if (argc == 7 && wcscmp(argv[1], L"--configure") == 0)
+        if ((argc == 7 && wcscmp(argv[1], L"--configure") == 0) ||
+            (argc == 10 && wcscmp(argv[1], L"--configure-v2") == 0))
         {
             long values[5];
             for (int i = 0; i < 5; ++i)
@@ -314,6 +344,19 @@ namespace
             settings.lockDelaySeconds = values[2];
             settings.automaticLock = values[3] != 0;
             settings.automaticUnlock = values[4] != 0;
+            if (argc == 10)
+            {
+                wchar_t* end = nullptr;
+                const long mode = wcstol(argv[7], &end, 10);
+                if (!end || *end || mode < 0 || mode > 2) return 2;
+                settings.unlockMode = static_cast<int>(mode);
+                settings.lanIp = argv[8];
+                if (!settings.lanIp.empty() && !IsValidLanIpv4(settings.lanIp)) return 2;
+                if (*argv[9] && !ParseBluetoothAddress(argv[9], settings.lanMac)) return 2;
+                if (!*argv[9]) settings.lanMac = 0;
+                if (settings.unlockMode != 0 &&
+                    (!IsValidLanIpv4(settings.lanIp) || settings.lanMac == 0)) return 2;
+            }
         }
         else if (argc == 4 && wcscmp(argv[1], L"--add") == 0)
         {

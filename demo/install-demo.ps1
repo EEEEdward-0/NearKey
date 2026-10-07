@@ -24,5 +24,5 @@ New-Item -Path $classKey -Force | Out-Null
 Set-Item -LiteralPath $classKey -Value $destination
 New-ItemProperty -LiteralPath $classKey -Name ThreadingModel -Value 'Apartment' -PropertyType String -Force | Out-Null
 New-Item -Path $providerKey -Force | Out-Null
-Set-Item -LiteralPath $providerKey -Value 'Bluetooth Unlock Demo'
+Set-Item -LiteralPath $providerKey -Value '靠近解锁'
 Write-Output '蓝牙登录组件已注册。Windows 原有登录方式仍可使用。'

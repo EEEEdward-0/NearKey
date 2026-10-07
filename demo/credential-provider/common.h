@@ -74,7 +74,7 @@ static const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR s_rgCredProvFieldDescriptors[]
 {
     { SFI_TILEIMAGE,         CPFT_TILE_IMAGE,    L"Image",                      CPFG_CREDENTIAL_PROVIDER_LOGO  },
     { SFI_LABEL,             CPFT_SMALL_TEXT,    L"Tooltip",                    CPFG_CREDENTIAL_PROVIDER_LABEL },
-    { SFI_LARGE_TEXT,        CPFT_LARGE_TEXT,    L"Bluetooth Unlock Demo"                                      },
+    { SFI_LARGE_TEXT,        CPFT_LARGE_TEXT,    L"靠近解锁"                                      },
     { SFI_PASSWORD,          CPFT_PASSWORD_TEXT, L"Password text"                                              },
     { SFI_SUBMIT_BUTTON,     CPFT_SUBMIT_BUTTON, L"Login"                                                      },
     { SFI_LAUNCHWINDOW_LINK, CPFT_COMMAND_LINK,  L"Launch helper window"                                       },

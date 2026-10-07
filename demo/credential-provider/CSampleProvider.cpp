@@ -129,15 +129,22 @@ HRESULT CSampleProvider::Advise(
             const bool hasSid = RegGetValueW(HKEY_LOCAL_MACHINE,
                 L"SOFTWARE\\BluetoothUnlockDemo", L"UserSid", RRF_RT_REG_SZ,
                 nullptr, sid, &bytes) == ERROR_SUCCESS;
-            bool wasNearby = hasSid && IsExistingSessionForUser(sid) && IsIPhoneNearby(sid);
+            bool wasNearby = hasSid && IsExistingSessionForUser(sid) && IsUnlockConditionMet(sid);
             bool notified = false;
             static std::atomic<ULONGLONG> lastRefresh{0};
             while (!stop->load())
             {
                 Sleep(1500);
                 if (stop->load()) break;
-                const bool isNearby = hasSid && IsExistingSessionForUser(sid) && IsIPhoneNearby(sid);
-                if (isNearby && (!wasNearby || !notified))
+                const bool isNearby = hasSid && IsExistingSessionForUser(sid) && IsUnlockConditionMet(sid);
+                if (!isNearby && wasNearby)
+                {
+                    // Remove our tile when the condition disappears so Windows' own
+                    // password and PIN providers remain the visible sign-in path.
+                    events->CredentialsChanged(upAdviseContext);
+                    notified = false;
+                }
+                else if (isNearby && (!wasNearby || !notified))
                 {
                     const ULONGLONG now = GetTickCount64();
                     ULONGLONG prior = lastRefresh.load();
@@ -221,8 +228,9 @@ HRESULT CSampleProvider::GetCredentialCount(
         _CreateEnumeratedCredentials();
     }
 
-    *pdwCount = _pCredential != nullptr ? 1 : 0;
-    if (*pdwCount == 1 && _pCredential->IsNearbyForAutoLogon())
+    const bool eligible = _pCredential != nullptr && _pCredential->IsNearbyForAutoLogon();
+    *pdwCount = eligible ? 1 : 0;
+    if (eligible)
     {
         *pdwDefault = 0;
         *pbAutoLogonWithDefault = TRUE;

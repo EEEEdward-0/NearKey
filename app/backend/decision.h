@@ -22,3 +22,6 @@ struct Decision
 Decision EvaluateProximity(const Settings& settings,
                            const std::vector<Observation>& observations,
                            uint64_t now);
+
+// One mode is selected explicitly; LAN-only never inherits a stale Bluetooth result.
+bool UnlockConditionMet(int mode, bool bluetoothNear, bool lanPresent);

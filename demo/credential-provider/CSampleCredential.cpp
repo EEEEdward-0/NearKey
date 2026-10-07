@@ -77,7 +77,7 @@ HRESULT CSampleCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
     // Initialize the String value of all the fields.
     if (SUCCEEDED(hr))
     {
-        hr = SHStrDupW(L"Bluetooth Unlock Demo", &_rgFieldStrings[SFI_LABEL]);
+        hr = SHStrDupW(L"靠近解锁", &_rgFieldStrings[SFI_LABEL]);
     }
     if (SUCCEEDED(hr))
     {
@@ -226,7 +226,7 @@ bool CSampleCredential::IsNearbyForAutoLogon() const
     const bool existingSession = IsExistingSessionForUser(_pszUserSid);
     RecordLoginFlow(L"LastExistingSession", existingSession ? 1 : 0);
     return (_cpus == CPUS_UNLOCK_WORKSTATION || _cpus == CPUS_LOGON) &&
-        existingSession && IsIPhoneNearby(_pszUserSid);
+        existingSession && IsUnlockConditionMet(_pszUserSid);
 }
 
 // Similarly to SetSelected, LogonUI calls this when your tile was selected
@@ -537,11 +537,11 @@ HRESULT CSampleCredential::GetSerialization(_Out_ CREDENTIAL_PROVIDER_GET_SERIAL
     *pcpsiOptionalStatusIcon = CPSI_NONE;
     ZeroMemory(pcpcs, sizeof(*pcpcs));
 
-    // The Bluetooth scanner never owns credentials. Check its latest observation
-    // when the user clicks Login, then decrypt the locally configured password.
-    if (!IsIPhoneNearby(_pszUserSid))
+    // The scanner never owns credentials. Recheck the selected condition
+    // immediately before decrypting the locally configured password.
+    if (!IsUnlockConditionMet(_pszUserSid))
     {
-        SHStrDupW(L"iPhone signal is missing or too old.", ppwszOptionalStatusText);
+        SHStrDupW(L"解锁条件未满足，请选择 Windows PIN 或密码登录。", ppwszOptionalStatusText);
         *pcpsiOptionalStatusIcon = CPSI_WARNING;
         return S_OK;
     }
@@ -549,7 +549,7 @@ HRESULT CSampleCredential::GetSerialization(_Out_ CREDENTIAL_PROVIDER_GET_SERIAL
     hr = LoadDemoPassword(_pszUserSid, &demoPassword);
     if (FAILED(hr))
     {
-        SHStrDupW(L"Bluetooth Unlock Demo has no password configured.", ppwszOptionalStatusText);
+        SHStrDupW(L"未配置本机登录密码，请使用 Windows PIN 或密码登录。", ppwszOptionalStatusText);
         *pcpsiOptionalStatusIcon = CPSI_WARNING;
         return S_OK;
     }

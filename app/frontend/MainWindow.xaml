@@ -210,7 +210,16 @@
                                 <RadioButton x:Name="BothMode" Content="蓝牙靠近，并且局域网设备全部在线" GroupName="Mode" Checked="OnModeChanged" />
                                 <StackPanel x:Name="LanFields" Margin="0,16,0,0" Visibility="Collapsed">
                                     <TextBlock Text="局域网设备信息" FontWeight="SemiBold" />
-                                    <TextBlock Text="填写 Wi-Fi MAC 后，自动探测同网段并查找手机当前 IP；只填写 IP 时，可读取对应 MAC。首次使用可在手机当前 Wi-Fi 网络详情中找到这两项。" Style="{StaticResource Help}" />
+                                    <TextBlock Text="可以扫描局域网后选择设备，无需手动输入；也可以手动填写 IP 和 Wi-Fi MAC，或填写其中一项后补全。扫描结果包含路由器等其他设备，请确认选择的是自己的手机。" Style="{StaticResource Help}" />
+                                    <Button x:Name="ScanLanButton" Content="扫描局域网设备" Style="{StaticResource SecondaryButton}" HorizontalAlignment="Left" Margin="0,0,0,10" Click="OnScanLan" />
+                                    <StackPanel x:Name="LanScanPanel" Visibility="Collapsed" Margin="0,0,0,16">
+                                        <TextBlock x:Name="LanScanHint" TextWrapping="Wrap" Margin="0,0,0,8" />
+                                        <ListBox x:Name="LanScanList" Height="140" DisplayMemberPath="Display" />
+                                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                            <Button Content="填入设备 1" Tag="1" Style="{StaticResource SecondaryButton}" Click="OnUseLanScan" Margin="0,0,12,0" />
+                                            <Button Content="填入设备 2" Tag="2" Style="{StaticResource SecondaryButton}" Click="OnUseLanScan" />
+                                        </StackPanel>
+                                    </StackPanel>
                                     <TextBlock Text="设备 1" FontWeight="SemiBold" Margin="0,0,0,8" />
                                     <Grid>
                                         <Grid.ColumnDefinitions>
@@ -227,7 +236,7 @@
                                             <TextBox x:Name="LanMacBox" />
                                         </StackPanel>
                                     </Grid>
-                                    <Button x:Name="ResolveLanButton" Content="自动补全" Style="{StaticResource SecondaryButton}" HorizontalAlignment="Left" Margin="0,12,0,0" Click="OnResolveLan" />
+                                    <Button x:Name="ResolveLanButton" Content="根据已填信息补全" Style="{StaticResource SecondaryButton}" HorizontalAlignment="Left" Margin="0,12,0,0" Click="OnResolveLan" />
                                     <TextBlock Text="设备 2（可选）" FontWeight="SemiBold" Margin="0,16,0,8" />
                                     <Grid>
                                         <Grid.ColumnDefinitions>
@@ -244,7 +253,7 @@
                                             <TextBox x:Name="LanMacBox2" />
                                         </StackPanel>
                                     </Grid>
-                                    <Button x:Name="ResolveLanButton2" Content="自动补全第二台" Style="{StaticResource SecondaryButton}" HorizontalAlignment="Left" Margin="0,12,0,0" Click="OnResolveLan" />
+                                    <Button x:Name="ResolveLanButton2" Content="根据已填信息补全第二台" Style="{StaticResource SecondaryButton}" HorizontalAlignment="Left" Margin="0,12,0,0" Click="OnResolveLan" />
                                     <TextBlock Text="配置一台时，该设备在线即通过；配置两台时，两台都在线才通过。删除第二台的两项信息并保存可恢复单台。" Style="{StaticResource Help}" />
                                     <TextBlock Text="补全后请确认这是你的手机，再保存设置。手机需与电脑在同一局域网；局域网只能确认设备在线，不能判断距离。" Style="{StaticResource Help}" />
                                 </StackPanel>

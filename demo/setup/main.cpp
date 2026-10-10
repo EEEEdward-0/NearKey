@@ -26,11 +26,19 @@ namespace
             }
             if (character == L'\b')
             {
-                if (length) --length;
+                if (length)
+                {
+                    --length;
+                    std::wprintf(L"\b \b");
+                    std::fflush(stdout);
+                }
             }
             else if (character >= L' ' && length < 255)
             {
                 buffer[length++] = character;
+                // _getwch never echoes input; a marker confirms that the key was received.
+                std::wprintf(L"*");
+                std::fflush(stdout);
             }
         }
     }
@@ -54,7 +62,8 @@ namespace
 int wmain()
 {
     std::wprintf(L"Bluetooth Unlock Demo setup\n");
-    std::wprintf(L"Enter your Microsoft account password locally. Nothing is sent to chat.\n");
+    std::wprintf(L"Enter this Windows account's password locally. Nothing is sent to chat.\n");
+    std::wprintf(L"Each character appears as *. Press Enter after each entry.\n");
     wchar_t first[256] = {};
     wchar_t second[256] = {};
     std::wprintf(L"Password: ");

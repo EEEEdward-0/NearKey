@@ -1,6 +1,6 @@
 # NearKey / 近钥（Windows）
 
-Windows 11 上的本机应用。后台支持开机自动启动的原生 C++ Windows 服务，登录后另有会话后台执行自动锁定；设置界面是单独的 WPF 进程，关闭窗口后不驻留。登录组件沿用 `windows/credential-provider`，保留 Windows 原有 PIN 和密码登录入口。
+Windows 11 上的本机应用。后台支持开机自动启动的原生 C++ Windows 服务，登录后另有会话后台执行自动锁定；设置界面是单独的 WPF 进程，关闭窗口后驻留托盘。登录组件沿用 `demo/credential-provider`，保留 Windows 原有 PIN 和密码登录入口。
 
 ## 已实现
 
@@ -14,7 +14,7 @@ Windows 11 上的本机应用。后台支持开机自动启动的原生 C++ Wind
 - 靠近条件不满足时，解锁磁贴拒绝提交并提示使用 Windows PIN 或密码；原生 PIN／密码入口始终保留。
 - 手动锁定、登录后启动后台、状态查看和事件记录。事件日志达到 1 MB 后轮换到 `events.previous.log`。
 - 试运行：输入假设的蓝牙信号与局域网在线台数，复用后台规则计算并说明解锁条件与自动锁定倒计时；预演不执行锁屏或解锁。
-- 设置界面分为设备、解锁设置和运行记录三个独立页面。设备添加与移除立即保存，规则需点击保存设置；界面提供首次使用和锁屏测试步骤。窗口最小化后可从系统托盘打开、立即锁定或退出设置界面；关闭窗口仍只退出界面，后台继续运行。
+- 设置界面分为设备、解锁设置和运行记录三个独立页面。设备添加与移除立即保存，规则需点击保存设置；界面提供首次使用和锁屏测试步骤。关闭或最小化窗口后可从系统托盘重新打开、立即锁定或明确退出设置界面；后台继续运行。安装后登录 Windows 只自动启动托盘入口，不弹出设置窗口。
 - 后台 BLE 广播通过事件接收，每 2 秒汇总规则、每 4 秒写一次界面快照；界面每 4 秒读取一次。设备列表只显示最近 30 秒收到的广播，明确区分已选择设备与身份未确认设备，并按冒号分组显示 MAC。
 - 已配对设备列表每 60 秒从 Windows 更新一次；即使暂时没有广播，也在设备列表中标为“未检测到”，不会被算作靠近。
 
@@ -42,6 +42,12 @@ Windows 11 上的本机应用。后台支持开机自动启动的原生 C++ Wind
 仅更新界面时，先发布 `app/frontend/BluetoothUnlock.UI.csproj` 到 `app/frontend/bin/publish`，再以管理员身份运行 `app/install-ui.ps1`，无需重装后台和登录组件。
 
 界面使用已安装的 .NET 10 Desktop Runtime，不把运行时打包进应用。停止或移除应用时，以管理员身份运行 `app/uninstall-app.ps1`；设置和事件记录会留在用户目录及 ProgramData，便于用户自行决定是否删除。
+
+### Windows 版本兼容范围
+
+- 本项目当前以 Windows 11 x64 和 ARM64 为目标。.NET 官方的 [.NET 10 Windows 支持表](https://learn.microsoft.com/en-us/dotnet/core/install/windows) 列出 Windows 11 的 x64/ARM64，以及 Windows 10 的 LTSC/Enterprise 版本；普通 Windows 10 Home/Pro 不在该表的 .NET 10 支持范围内。安装设置界面需要 **.NET 10 Desktop Runtime**，只有基础 .NET Runtime 不够。
+- 微软的 [Windows 凭据提供程序说明](https://learn.microsoft.com/en-us/windows/win32/secauthn/credential-providers-in-windows) 指出 Windows 支持 V1、V2 凭据提供程序，并建议始终保留至少一种系统自带登录方式。本项目保留 Windows PIN／密码入口；不同大版本的真实登录界面仍须在对应系统上验收，不能只凭编译成功认定兼容。
+- 安装时的密码配置窗口使用 `_getwch` 安全读取；按照[微软文档](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/getch-getwch?view=msvc-170)，该函数不会回显输入。新版会以 `*` 表示收到按键，按 Enter 后进入确认输入；两次不一致不会保存。请填写账户密码，不是 PIN。
 
 ## 设备判断说明
 

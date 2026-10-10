@@ -93,7 +93,7 @@
                     <TextBlock Text="近钥" FontSize="22" FontWeight="Bold" Foreground="#2374CF" />
                     <TextBlock Text="NearKey" Foreground="#8793A4" FontSize="11" Margin="0,5,0,0" />
                 </StackPanel>
-                <TextBlock DockPanel.Dock="Bottom" Text="关闭窗口后，后台继续运行。" Foreground="#8793A4" FontSize="11" Margin="8,20,8,0" />
+                <TextBlock DockPanel.Dock="Bottom" Text="关闭窗口后可从托盘打开设置；后台继续运行。" Foreground="#8793A4" FontSize="11" Margin="8,20,8,0" />
                 <StackPanel>
                     <Button x:Name="DevicesNav" Content="设备" Tag="Devices" Click="OnNavigate" Style="{StaticResource NavButton}" Background="#EAF1FA" />
                     <Button x:Name="RulesNav" Content="解锁设置" Tag="Rules" Click="OnNavigate" Style="{StaticResource NavButton}" />

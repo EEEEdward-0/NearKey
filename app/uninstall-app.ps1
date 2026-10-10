@@ -3,7 +3,9 @@ $ErrorActionPreference = 'Stop'
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = [Security.Principal.WindowsPrincipal]::new($identity)
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    throw '请使用管理员权限运行卸载脚本。'
+    $elevated = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgumentList @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $PSCommandPath + '"')) -Verb RunAs -Wait -PassThru
+    exit $elevated.ExitCode
 }
 $destination = Join-Path $env:ProgramFiles 'BluetoothUnlockDemo'
 $service = Get-Service -Name BluetoothUnlockService -ErrorAction SilentlyContinue
@@ -40,12 +42,32 @@ Get-CimInstance Win32_Process -Filter "Name = 'BluetoothBackend.exe'" |
         Wait-Process -Id $_.ProcessId -Timeout 10 -ErrorAction SilentlyContinue
     }
 Remove-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'BluetoothUnlock' -ErrorAction SilentlyContinue
+Remove-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'NearKeySettings' -ErrorAction SilentlyContinue
+Get-CimInstance Win32_Process -Filter "Name = 'BluetoothUnlock.UI.exe'" |
+    Where-Object { $_.ExecutablePath -eq (Join-Path $destination 'BluetoothUnlock.UI.exe') } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 $shortcut = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\近钥 NearKey.lnk'
 if (Test-Path -LiteralPath $shortcut) { Remove-Item -LiteralPath $shortcut -Force }
 $oldShortcut = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\蓝牙靠近解锁.lnk'
 if (Test-Path -LiteralPath $oldShortcut) { Remove-Item -LiteralPath $oldShortcut -Force }
 $root = Split-Path $PSScriptRoot -Parent
-& (Join-Path $root 'demo\uninstall-demo.ps1')
+$demoUninstaller = Join-Path $root 'demo\uninstall-demo.ps1'
+if (Test-Path -LiteralPath $demoUninstaller) {
+    & $demoUninstaller
+} else {
+    # The packaged installer ships no demo directory; remove its provider registration here.
+    $guid = '{c6830b85-4394-479b-9998-e919461b6081}'
+    $providerKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\$guid"
+    $classKey = "HKLM:\SOFTWARE\Classes\CLSID\$guid"
+    if (Test-Path -LiteralPath $providerKey) { Remove-Item -LiteralPath $providerKey -Force }
+    if (Test-Path -LiteralPath $classKey) { Remove-Item -LiteralPath $classKey -Recurse -Force }
+    $credentialKey = 'HKLM:\SOFTWARE\BluetoothUnlockDemo'
+    if (Test-Path -LiteralPath $credentialKey) { Remove-Item -LiteralPath $credentialKey -Force }
+    $stateKey = 'HKCU:\Software\BluetoothUnlockDemo'
+    if (Test-Path -LiteralPath $stateKey) { Remove-Item -LiteralPath $stateKey -Force }
+    $providerDll = Join-Path $destination 'BluetoothCredentialProvider.dll'
+    if (Test-Path -LiteralPath $providerDll) { Remove-Item -LiteralPath $providerDll -Force }
+}
 foreach ($name in @('BluetoothBackend.exe', 'BluetoothUnlock.UI.exe', 'BluetoothUnlock.UI.dll',
                     'BluetoothUnlock.UI.deps.json', 'BluetoothUnlock.UI.runtimeconfig.json')) {
     $path = Join-Path $destination $name

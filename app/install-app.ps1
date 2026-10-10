@@ -3,7 +3,9 @@ $ErrorActionPreference = 'Stop'
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = [Security.Principal.WindowsPrincipal]::new($identity)
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    throw '请使用管理员权限运行安装脚本。'
+    $elevated = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgumentList @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $PSCommandPath + '"')) -Verb RunAs -Wait -PassThru
+    exit $elevated.ExitCode
 }
 function Copy-AppFile([string]$sourcePath, [string]$destinationPath) {
     # Windows may retain an executable mapping briefly after process termination.
@@ -26,15 +28,16 @@ if (-not (Test-Path -LiteralPath $backend) -or
     throw '请先运行 app\build.ps1。'
 }
 $serviceName = 'BluetoothUnlockService'
-$existingService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-if ($existingService) {
-    Stop-Service -Name $serviceName -ErrorAction Stop
-    $existingService.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(60))
-}
 $configKey = 'HKLM:\SOFTWARE\BluetoothUnlockDemo'
 $config = Get-ItemProperty -LiteralPath $configKey -ErrorAction Stop
 if ($config.UserSid -ne $identity.User.Value -or -not $config.Password) {
     throw '请先用当前 Windows 账户完成本机密码配置。服务只绑定此账户。'
+}
+$null = New-Item -ItemType Directory -Path $destination -Force
+$existingService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+if ($existingService) {
+    Stop-Service -Name $serviceName -ErrorAction Stop
+    $existingService.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(60))
 }
 $serviceKey = 'HKLM:\SOFTWARE\BluetoothUnlockApp'
 if (-not (Test-Path -LiteralPath $serviceKey)) { New-Item -Path $serviceKey | Out-Null }
@@ -70,7 +73,6 @@ if ($packaged) {
 } else {
     & (Join-Path $root 'demo\install-demo.ps1')
 }
-New-Item -ItemType Directory -Path $destination -Force | Out-Null
 $installedBackend = Join-Path $destination 'BluetoothBackend.exe'
 Get-CimInstance Win32_Process -Filter "Name = 'BluetoothBackend.exe'" |
     Where-Object { $_.ExecutablePath -eq $installedBackend } |
@@ -150,6 +152,9 @@ try {
     Start-Service -Name $serviceName
     Start-ScheduledTask -TaskName 'BluetoothUnlockSession'
     Remove-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name BluetoothUnlock -ErrorAction SilentlyContinue
+    # Start the settings tray in the bound user's session at each sign-in.
+    $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+    New-ItemProperty -Path $runKey -Name NearKeySettings -Value ('"' + (Join-Path $destination 'BluetoothUnlock.UI.exe') + '" --tray') -PropertyType String -Force | Out-Null
 } catch {
     New-ItemProperty -LiteralPath $serviceKey -Name ServiceEnabled -Value 0 -PropertyType DWord -Force | Out-Null
     Stop-Service -Name $serviceName -ErrorAction SilentlyContinue

@@ -13,6 +13,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _refreshTimer = new() { Interval = TimeSpan.FromSeconds(4) };
     private readonly Forms.NotifyIcon _trayIcon;
     private readonly System.IO.Stream _iconStream;
+    private bool _exitRequested;
 
     public MainWindow()
     {
@@ -27,16 +28,23 @@ public partial class MainWindow : Window
         };
         _trayIcon.ContextMenuStrip.Items.Add("打开设置", null, (_, _) => Dispatcher.Invoke(ShowFromTray));
         _trayIcon.ContextMenuStrip.Items.Add("立即锁定", null, (_, _) => Dispatcher.Invoke(() => OnManualLock(this, new RoutedEventArgs())));
-        _trayIcon.ContextMenuStrip.Items.Add("退出设置界面", null, (_, _) => Dispatcher.Invoke(Close));
+        _trayIcon.ContextMenuStrip.Items.Add("退出设置界面", null, (_, _) => Dispatcher.Invoke(() => { _exitRequested = true; Close(); }));
         _trayIcon.DoubleClick += (_, _) => Dispatcher.Invoke(ShowFromTray);
         StateChanged += (_, _) => { if (WindowState == WindowState.Minimized) Hide(); };
+        Closing += (_, eventArgs) =>
+        {
+            // Closing the settings window keeps its tray entry available; Exit is explicit.
+            if (_exitRequested) return;
+            eventArgs.Cancel = true;
+            Hide();
+        };
         Loaded += OnLoaded;
         Closed += (_, _) => { _refreshTimer.Stop(); _trayIcon.Visible = false; _trayIcon.Icon.Dispose(); _trayIcon.Dispose(); _iconStream.Dispose(); };
         UnlockSlider.ValueChanged += (_, _) => UnlockValue.Text = $"{UnlockSlider.Value:0} dBm";
         LockSlider.ValueChanged += (_, _) => LockValue.Text = $"{LockSlider.Value:0} dBm";
     }
 
-    private void ShowFromTray()
+    internal void ShowFromTray()
     {
         Show();
         WindowState = WindowState.Normal;

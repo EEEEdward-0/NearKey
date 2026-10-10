@@ -9,9 +9,11 @@
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" .\installer\NearKey-x64.iss
 ```
 
-ARM64 版本把脚本文件名换成 `NearKey-arm64.iss`。`r`n`r`n输出文件：
+ARM64 版本把脚本文件名换成 `NearKey-arm64.iss`。
+
+输出文件按版本号命名，例如：
 
 ```text
-release/NearKey-Setup-x64.exe
+release/NearKey-Setup-x64-v1.0.1.exe
 ```
 

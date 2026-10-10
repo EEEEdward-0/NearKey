@@ -230,6 +230,23 @@ internal sealed class BackendClient
         catch (IOException) { return []; }
     }
 
+    public IEnumerable<(string Name, string Path)> DiagnosticFiles()
+    {
+        var installDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "NearKey");
+        yield return ("installer.log", Path.Combine(installDirectory, "installer.log"));
+        yield return ("install.log", Path.Combine(installDirectory, "install.log"));
+        yield return ("ui-errors.previous.log", Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BluetoothUnlock", "ui-errors.previous.log"));
+        yield return ("service-events.log", Path.Combine(_runtimeDirectory, "events.log"));
+        yield return ("service-events.previous.log", Path.Combine(_runtimeDirectory, "events.previous.log"));
+        if (ServiceInstalled)
+        {
+            yield return ("session-events.log", Path.Combine(_dataDirectory, "session-events.log"));
+            yield return ("session-events.previous.log", Path.Combine(_dataDirectory, "session-events.previous.log"));
+        }
+    }
+
     public bool StartupEnabled()
     {
         if (ServiceInstalled) return true;

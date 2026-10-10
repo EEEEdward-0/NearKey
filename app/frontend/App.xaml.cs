@@ -27,7 +27,8 @@ public partial class App : System.Windows.Application
         var showSignal = new EventWaitHandle(false, EventResetMode.AutoReset, name + ".Show");
         _showSignal = showSignal;
         base.OnStartup(e);
-        MainWindow = new MainWindow();
+        try { MainWindow = new MainWindow(); }
+        catch (Exception error) { Diagnostics.Record("startup", error); throw; }
         if (!trayOnly) MainWindow.Show();
         _ = Task.Run(() =>
         {

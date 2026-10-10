@@ -7,6 +7,16 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
         '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $PSCommandPath + '"')) -Verb RunAs -Wait -PassThru
     exit $elevated.ExitCode
 }
+function Write-InstallLog([string]$message) {
+    try {
+        $directory = Join-Path $env:ProgramData 'NearKey'
+        [IO.Directory]::CreateDirectory($directory) | Out-Null
+        [IO.File]::AppendAllText((Join-Path $directory 'install.log'),
+            "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`t$message`r`n", [Text.Encoding]::UTF8)
+    } catch { }
+}
+Write-InstallLog 'install_app_started'
+try {
 function Copy-AppFile([string]$sourcePath, [string]$destinationPath) {
     # Windows may retain an executable mapping briefly after process termination.
     for ($attempt = 0; $attempt -lt 10; $attempt++) {
@@ -18,7 +28,7 @@ function Copy-AppFile([string]$sourcePath, [string]$destinationPath) {
     }
 }
 $root = Split-Path $PSScriptRoot -Parent
-$packaged = Test-Path (Join-Path $PSScriptRoot 'backend')
+$packaged = Test-Path (Join-Path $PSScriptRoot 'backend\BluetoothBackend.exe')
 $platform = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString() -eq 'Arm64') { 'ARM64' } else { 'x64' }
 $backend = if ($packaged) { Join-Path $PSScriptRoot 'backend\BluetoothBackend.exe' } else { Join-Path $PSScriptRoot "backend\$platform\Release\BluetoothBackend.exe" }
 $uiDirectory = if ($packaged) { Join-Path $PSScriptRoot 'ui' } else { Join-Path $PSScriptRoot $(if ($platform -eq 'ARM64') { 'frontend\bin\publish-arm64' } else { 'frontend\bin\publish' }) }
@@ -161,3 +171,8 @@ try {
     throw
 }
 Write-Output "开机服务已安装并启动，配置目录：$dataDirectory。首次登录和后续锁屏均需设备条件满足后按确认键；请先验证服务状态，再重启测试。"
+Write-InstallLog 'install_app_succeeded'
+} catch {
+    Write-InstallLog "install_app_failed at line $($_.InvocationInfo.ScriptLineNumber): $($_.Exception.GetType().Name): $($_.Exception.Message)"
+    throw
+}

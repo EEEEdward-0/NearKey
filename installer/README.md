@@ -14,6 +14,8 @@ ARM64 版本把脚本文件名换成 `NearKey-arm64.iss`。
 输出文件按版本号命名，例如：
 
 ```text
-release/NearKey-Setup-x64-v1.0.1.exe
+release/NearKey-Setup-x64-v1.0.2.exe
 ```
+
+安装失败时，先查看 `%PROGRAMDATA%\NearKey\installer.log` 和 `install.log`。安装成功后，可在设置窗口“运行记录”页点击“导出诊断日志”，导出安装日志、界面异常与后台事件日志；导出包不含设置文件或受保护的密码。
 

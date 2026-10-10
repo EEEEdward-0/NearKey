@@ -14,6 +14,7 @@ public partial class MainWindow : Window
     private readonly Forms.NotifyIcon _trayIcon;
     private readonly System.IO.Stream _iconStream;
     private bool _exitRequested;
+    private string? _lastRefreshError;
 
     public MainWindow()
     {
@@ -79,7 +80,7 @@ public partial class MainWindow : Window
                 (reasons.Count > 0 ? $"原因：{string.Join("；", reasons)}。" : "所需条件均通过。") +
                 $" 自动锁定：{(lockCounting ? "若持续离开将开始倒计时" : "不会开始离开倒计时")}。";
         }
-        catch (Exception error) { PreviewResult.Text = $"预演失败：{error.Message}"; }
+        catch (Exception error) { Diagnostics.Record("preview", error); PreviewResult.Text = $"预演失败：{error.Message}"; }
     }
 
     private void OnNavigate(object sender, RoutedEventArgs e)
@@ -188,8 +189,14 @@ public partial class MainWindow : Window
             }
             LanStateText.ToolTip = string.Join("\n", lanDetails);
             EventList.ItemsSource = _backend.ReadEvents().Select(TranslateEvent).ToArray();
+            _lastRefreshError = null;
         }
-        catch (Exception error) { HintText.Text = $"读取状态失败：{error.Message}"; }
+        catch (Exception error)
+        {
+            if (_lastRefreshError != error.Message) Diagnostics.Record("refresh", error);
+            _lastRefreshError = error.Message;
+            HintText.Text = $"读取状态失败：{error.Message}";
+        }
     }
 
     private static string TranslateEvent(string line) => line
@@ -375,8 +382,26 @@ public partial class MainWindow : Window
         catch (Exception error) { ShowError(error); }
     }
 
+    private void OnExportDiagnostics(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "导出 NearKey 诊断日志",
+            Filter = "ZIP 压缩包 (*.zip)|*.zip",
+            FileName = $"NearKey-diagnostics-{DateTime.Now:yyyyMMdd-HHmmss}.zip"
+        };
+        if (dialog.ShowDialog(this) != true) return;
+        try
+        {
+            var count = Diagnostics.Export(dialog.FileName, _backend.DiagnosticFiles());
+            HintText.Text = $"已导出 {count} 份日志：{dialog.FileName}";
+        }
+        catch (Exception error) { ShowError(error); }
+    }
+
     private void ShowError(Exception error)
     {
+        Diagnostics.Record("settings", error);
         HintText.Text = error.Message;
         System.Windows.MessageBox.Show(this, error.Message, "近钥 NearKey", MessageBoxButton.OK,
             MessageBoxImage.Warning);

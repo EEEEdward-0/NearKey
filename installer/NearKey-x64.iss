@@ -1,5 +1,5 @@
 #define MyAppName "NearKey"
-#define MyAppVersion "1.0.1"
+#define MyAppVersion "1.0.2"
 #define MyAppPublisher "EEEEdward-0"
 #define MyAppExeName "BluetoothUnlock.UI.exe"
 
@@ -45,24 +45,46 @@ Filename: "{app}\ui\{#MyAppExeName}"; Description: "启动 NearKey 设置"; Flag
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\uninstall-app.ps1"""; RunOnceId: "NearKeyUninstall"
 
 [Code]
+procedure WriteInstallerLog(Message: String);
+var
+  DirectoryPath: String;
+begin
+  DirectoryPath := ExpandConstant('{commonappdata}\NearKey');
+  if ForceDirectories(DirectoryPath) then
+    SaveStringToFile(DirectoryPath + '\installer.log',
+      GetDateTimeString('yyyy-mm-dd hh:nn:ss', '-', ':') + #9 + Message + #13#10, True);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;
 begin
   if CurStep <> ssPostInstall then Exit;
+  WriteInstallerLog('password_setup_started');
 
   if not Exec(ExpandConstant('{app}\setup\BluetoothSetup.exe'), '', '',
-    SW_SHOWNORMAL, ewWaitUntilTerminated, ResultCode) then
+    SW_SHOWNORMAL, ewWaitUntilTerminated, ResultCode) then begin
+    WriteInstallerLog('password_setup_start_failed');
     RaiseException('无法启动 Windows 账户密码配置，NearKey 安装已停止。');
-  if ResultCode <> 0 then
+  end;
+  if ResultCode <> 0 then begin
+    WriteInstallerLog('password_setup_failed: exit=' + IntToStr(ResultCode));
     RaiseException('Windows 账户密码配置未完成，NearKey 安装已停止。');
+  end;
+  WriteInstallerLog('password_setup_succeeded');
 
+  WriteInstallerLog('service_install_started');
   if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
     '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\install-checked.ps1') + '"',
-    '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then begin
+    WriteInstallerLog('service_install_start_failed');
     RaiseException('无法启动后台服务安装，NearKey 安装已停止。');
-  if ResultCode <> 0 then
-    RaiseException('后台服务安装失败，NearKey 安装已停止。');
+  end;
+  if ResultCode <> 0 then begin
+    WriteInstallerLog('service_install_failed: exit=' + IntToStr(ResultCode));
+    RaiseException('后台服务安装失败，NearKey 安装已停止。请查看 ProgramData\NearKey\install.log。');
+  end;
+  WriteInstallerLog('service_install_succeeded');
 end;
 
 
